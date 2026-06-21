@@ -3,8 +3,8 @@
 GeoZigZag is a lightweight route-planning tool for agricultural robot missions.
 It combines two planning modes in one small repository:
 
-- **Coverage planning**: generates zigzag/boustrophedon waypoints inside a field.
-- **Semantic georouting**: connects GeoJSON mission targets using direct or cost-aware routes.
+- **Coverage planning**: generates back-and-forth zigzag waypoints inside a field.
+- **Semantic routing**: connects GeoJSON mission targets using direct or cost-aware routes.
 
 The planner exports latitude, longitude, yaw, and quaternion fields that can be
 used by ROS-style waypoint followers.
@@ -13,13 +13,13 @@ used by ROS-style waypoint followers.
 
 ```text
 GeoZigZag/
-├── data/points.geojson
-├── geozigzag/
-│   ├── cli.py
-│   └── planning.py
-├── outputs/
-├── web/index.html
-└── requirements.txt
+|-- data/points.geojson
+|-- geozigzag/
+|   |-- cli.py
+|   `-- planning.py
+|-- outputs/
+|-- web/index.html
+`-- requirements.txt
 ```
 
 ## Web App

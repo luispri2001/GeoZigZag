@@ -78,7 +78,7 @@
     <aside>
       <header>
         <h1>GeoZigzag Studio</h1>
-        <div class="subtitle">Integrated coverage and waypoint routing for agricultural robot missions.</div>
+        <div class="subtitle">Integrated field coverage and waypoint routing for agricultural robot missions.</div>
       </header>
 
       <div class="tabs">
@@ -118,7 +118,7 @@
         </section>
 
         <section id="missionPanel" class="hidden">
-          <p class="section-title">Semantic georoute</p>
+          <p class="section-title">Semantic routing</p>
           <div class="field">
             <label for="missionOrder">Visit order</label>
             <textarea id="missionOrder">water_1, arbustivo_2, water_2</textarea>
@@ -427,7 +427,7 @@ function setMode(mode) {
   document.getElementById("missionTab").classList.toggle("active", mode === "mission");
   document.getElementById("coveragePanel").classList.toggle("hidden", mode !== "coverage");
   document.getElementById("missionPanel").classList.toggle("hidden", mode !== "mission");
-  document.getElementById("modePill").textContent = mode === "coverage" ? "Coverage planning" : "Semantic georoute";
+  document.getElementById("modePill").textContent = mode === "coverage" ? "Coverage planning" : "Semantic routing";
   generate();
 }
 function initInputs() {

@@ -1,8 +1,8 @@
-"""Integrated route and coverage planning primitives.
+"""Integrated route and coverage planning code.
 
 The module merges the two source projects at the algorithmic level:
 - zigzag coverage planning from field boundaries.
-- point-to-point georouting from semantic GeoJSON waypoints.
+- point-to-point routing from semantic GeoJSON waypoints.
 
 It deliberately uses only the Python standard library so the tool can run on a
 clean machine.
@@ -157,7 +157,7 @@ def generate_zigzag_rect(
     start_corner: str = "nw",
     row_direction_deg: float | None = None,
 ) -> tuple[list[dict[str, float]], dict[str, float]]:
-    """Generate a boustrophedon coverage route for a quadrilateral field."""
+    """Generate a back-and-forth zigzag route for a quadrilateral field."""
     corners = corners or DEFAULT_FIELD_CORNERS
     start_corner = (start_corner or "nw").lower()
     corner_map = {
@@ -393,9 +393,9 @@ def generate_cost_route(
 ) -> list[dict[str, float]]:
     """Generate a cost-aware route over a small local grid.
 
-    Semantic point labels from GeoJSON alter nearby cell traversal costs. This is
-    a lightweight, deterministic counterpart of the OSMnx/costmap path from the
-    original georoute-planner repository.
+    Semantic point labels from GeoJSON change nearby cell costs. This is a
+    lightweight version of the OSMnx/costmap path from the original
+    georoute-planner repository.
     """
     waypoints = [_feature_by_id(geojson, feature_id) for feature_id in feature_ids]
     features = []
