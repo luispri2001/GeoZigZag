@@ -225,6 +225,10 @@ function yawBetween(a, b) {
   const xy = llToXY(b[0], b[1], a);
   return normAngle(Math.atan2(xy[1], xy[0]));
 }
+function yawToQuaternion(yaw) {
+  const half = yaw / 2;
+  return {qx: 0, qy: 0, qz: Math.sin(half), qw: Math.cos(half)};
+}
 function toWaypoints(points) {
   const cleaned = [];
   for (const p of points) {
@@ -379,7 +383,7 @@ function render(result) {
   } else {
     poiGeojson.features.forEach(f => L.circleMarker([f.geometry.coordinates[1], f.geometry.coordinates[0]], {
       radius: 7, color: "#fff", weight: 2, fillColor: landColor(f.properties.landcover), fillOpacity: .95
-    }).bindTooltip(`${f.id} · ${f.properties.landcover}`).addTo(layer));
+    }).bindTooltip(`${f.id} - ${f.properties.landcover}`).addTo(layer));
     L.polyline(latlngs, {color: result.strategy === "cost" ? "#b65d13" : "#1764aa", weight:4, opacity:.95}).addTo(layer);
   }
   latlngs.filter((_,i)=>i % Math.max(1, Math.floor(latlngs.length / 60)) === 0).forEach(p => L.circleMarker(p, {radius:2.4, color:"#fff", weight:1, fillColor:"#111", fillOpacity:1}).addTo(layer));
@@ -404,8 +408,9 @@ function fitMap() {
   }
 }
 function updateDownloads() {
-  const csv = ["latitude,longitude,yaw"].concat(currentWaypoints.map(w => `${w.latitude.toFixed(12)},${w.longitude.toFixed(12)},${w.yaw.toFixed(12)}`)).join("\n") + "\n";
-  const yaml = "waypoints:\n" + currentWaypoints.map(w => `  - latitude: ${w.latitude.toFixed(12)}\n    longitude: ${w.longitude.toFixed(12)}\n    yaw: ${w.yaw.toFixed(12)}`).join("\n") + "\n";
+  const rows = currentWaypoints.map(w => ({...w, ...yawToQuaternion(w.yaw)}));
+  const csv = ["latitude,longitude,yaw,qx,qy,qz,qw"].concat(rows.map(w => `${w.latitude.toFixed(12)},${w.longitude.toFixed(12)},${w.yaw.toFixed(12)},${w.qx.toFixed(12)},${w.qy.toFixed(12)},${w.qz.toFixed(12)},${w.qw.toFixed(12)}`)).join("\n") + "\n";
+  const yaml = "waypoints:\n" + rows.map(w => `  - latitude: ${w.latitude.toFixed(12)}\n    longitude: ${w.longitude.toFixed(12)}\n    yaw: ${w.yaw.toFixed(12)}\n    qx: ${w.qx.toFixed(12)}\n    qy: ${w.qy.toFixed(12)}\n    qz: ${w.qz.toFixed(12)}\n    qw: ${w.qw.toFixed(12)}`).join("\n") + "\n";
   const set = (id, text, name, type) => {
     const blob = new Blob([text], {type});
     const a = document.getElementById(id);

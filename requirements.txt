@@ -1,3 +1,2 @@
-# The core Python planner is stdlib-only.
-# Optional: install these to serve the web UI with a tiny local server.
-flask>=3.0
+# GeoZigZag has no required third-party Python runtime dependencies.
+# The web UI uses Leaflet from a CDN and the CLI uses only the standard library.
