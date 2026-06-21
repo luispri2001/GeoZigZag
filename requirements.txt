@@ -1,0 +1,3 @@
+# The core Python planner is stdlib-only.
+# Optional: install these to serve the web UI with a tiny local server.
+flask>=3.0
