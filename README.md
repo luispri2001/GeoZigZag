@@ -3,8 +3,9 @@
 GeoZigZag is a lightweight route-planning tool for agricultural robot missions.
 It joins two practical workflows in one repository:
 
-- **Field coverage**: generate back-and-forth zigzag waypoints from field corners.
-- **Mission routing**: connect GeoJSON targets with OpenStreetMap road routes,
+- **Field coverage**: generate back-and-forth zigzag waypoints from field
+  corners on a Leaflet map with GPS imagery and street-map views.
+- **Mission routing**: connect GeoJSON targets over OpenStreetMap/OSRM paths,
   direct interpolation, or local cost-aware routes.
 
 The tool exports latitude, longitude, yaw, and planar quaternion values so the
@@ -23,13 +24,19 @@ followers.
 
 ## Features
 
-- Static Leaflet/OpenStreetMap web app: open it directly or serve it from a
-  local HTTP server.
+- Static Leaflet web app: open it directly or serve it from a local HTTP
+  server.
+- GPS imagery and OpenStreetMap base-map toggle in both coverage and mission
+  modes.
 - Editable WGS84 field corners, row spacing, waypoint spacing, start corner, and
   row bearing.
 - GeoJSON mission targets with land-cover labels.
-- Clickable mission waypoint picker with route ordering controls.
-- Online OpenStreetMap/OSRM road routing, plus direct interpolation and local
+- Mission route mode follows the GeoRoute Planner visit-order workflow,
+  defaults to OpenStreetMap paths/tracks, and keeps available POIs in a
+  collapsible right-side waypoint drawer.
+- Custom mission waypoints can be created by clicking the map, naming the
+  point, and assigning a land-cover/type label.
+- Online OpenStreetMap/OSRM path routing, plus direct interpolation and local
   costmap A* fallback routes.
 - CSV and YAML exports for downstream robot navigation.
 - Dependency-light Python core using only the standard library.
@@ -40,8 +47,9 @@ This repository currently provides the geospatial route-planning part of the
 larger agricultural simulation workflow:
 
 - covered now: map preview, field coverage generation, semantic mission routing
-  with selectable POIs, OSM road routing in the browser, CSV/YAML route exports,
-  reproducible CLI demo, and browser-based inspection.
+  with selectable and custom POIs, OSM path routing in the browser, clean
+  collapsible UI panels, CSV/YAML route exports, reproducible CLI demo, and
+  browser-based inspection.
 - not included yet: Geo2Gazebo terrain generation, Gazebo world creation,
   WILDBOAR/Jabali simulation launch files, or ROS 2 crop-follow navigation
   launchers.
@@ -79,8 +87,9 @@ py -3 -m pip install -r requirements.txt
 
 `requirements.txt` intentionally has no third-party runtime packages. The
 Python planner uses only the standard library. The web UI loads Leaflet,
-OpenStreetMap tiles, and OSRM road routes from public web services, so the
-browser needs internet access for the online map and OSM road-routing mode.
+OpenStreetMap tiles, GPS imagery tiles, and OSRM path routes from public web
+services, so the browser needs internet access for the online map and
+OSM path-routing mode.
 
 ### Web App
 
@@ -108,9 +117,23 @@ Then open:
 http://127.0.0.1:8000/
 ```
 
-The browser UI needs internet access for Leaflet and OpenStreetMap tiles.
-Mission routing defaults to `OSM roads`. If the OSRM service is unavailable,
-the browser falls back to the local costmap route.
+The browser UI needs internet access for Leaflet, OpenStreetMap tiles, GPS
+imagery tiles, and OSRM path routing. Coverage mode opens on the GPS imagery
+view by default. Mission route mode opens on the OpenStreetMap view by default
+and can switch to GPS imagery with the top-right view toggle.
+
+Mission routing defaults to `OpenStreetMap paths`, which mirrors the original
+GeoRoute Planner preference for walk/path-style routing. OSM routes are built
+segment by segment and direct connector legs are inserted so the route reaches
+the real POI coordinates instead of stopping only at OSRM's snapped road
+locations.
+
+The `Waypoints` button opens the right-side POI drawer, where targets can be
+added without crowding the route settings panel. In mission mode, click anywhere
+on the map to create a named waypoint with a type/land-cover label. Custom
+waypoints are available immediately in the drawer and can be added to the route
+for the current browser session. If the OSRM service is unavailable, the browser
+falls back to the local costmap route.
 
 If port `8000` is already in use, choose another port:
 
@@ -123,8 +146,11 @@ Then open `http://127.0.0.1:8001/`.
 To open the mission route view directly:
 
 ```text
-http://127.0.0.1:8000/web/index.html?mode=mission&strategy=osm
+http://127.0.0.1:8000/?mode=mission&strategy=osm
 ```
+
+The root redirect preserves query parameters, so both `/` and
+`/web/index.html` links can be used for direct mode links.
 
 ### Command-Line Demo
 
@@ -199,6 +225,15 @@ curl -I http://127.0.0.1:8000/
 The `curl` response should be `HTTP/1.0 200 OK`. Stop the server with
 `Ctrl+C` when finished.
 
+For browser smoke testing, open coverage and mission route mode and confirm:
+
+- Coverage starts with the `GPS` view active.
+- Mission route starts with the `Map` view active and `OSM paths` selected.
+- The `Waypoints` button opens the right-side POI drawer.
+- Clicking the map in Mission route mode opens a form for creating a named
+  custom waypoint.
+- Sidebar sections and the legend can be collapsed to keep the map readable.
+
 ## Output Schema
 
 CSV exports include:
@@ -229,6 +264,7 @@ GeoZigZag/
 |-- web/
 |   `-- index.html
 |-- .gitignore
+|-- index.html
 |-- README.md
 `-- requirements.txt
 ```

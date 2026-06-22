@@ -3,7 +3,6 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="refresh" content="0; url=web/index.html">
   <title>GeoZigzag Studio</title>
   <link rel="canonical" href="web/index.html">
   <style>
@@ -26,10 +25,12 @@
 </head>
 <body>
   <main>
-    <p>Opening <a href="web/index.html">GeoZigzag Studio</a>...</p>
+    <p>Opening <a id="studioLink" href="web/index.html">GeoZigzag Studio</a>...</p>
   </main>
   <script>
-    window.location.replace("web/index.html");
+    const target = `web/index.html${window.location.search}${window.location.hash}`;
+    document.getElementById("studioLink").href = target;
+    window.location.replace(target);
   </script>
 </body>
 </html>

@@ -32,7 +32,12 @@
     .tab { min-height: 38px; border: 1px solid var(--line); background: #fff; color: var(--ink); border-radius: 8px; font-weight: 700; cursor: pointer; }
     .tab.active { background: var(--ink); color: #fff; border-color: var(--ink); }
     .scroll { overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
-    section { border: 1px solid var(--line); border-radius: 8px; background: #fff; padding: 12px; }
+    .panel-section { border: 1px solid var(--line); border-radius: 8px; background: #fff; padding: 0; overflow: clip; }
+    .panel-section > summary { min-height: 42px; padding: 0 12px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: .83rem; font-weight: 800; text-transform: uppercase; color: #3d4652; letter-spacing: 0; list-style: none; }
+    .panel-section > summary::-webkit-details-marker { display: none; }
+    .panel-section > summary::after { content: "⌄"; color: var(--muted); font-size: 1rem; transform: rotate(0deg); transition: transform .16s ease; }
+    .panel-section:not([open]) > summary::after { transform: rotate(-90deg); }
+    .panel-body { border-top: 1px solid var(--line); padding: 12px; }
     .section-title { margin: 0 0 10px; font-size: .83rem; font-weight: 800; text-transform: uppercase; color: #3d4652; letter-spacing: 0; }
     .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     label { display: block; font-size: .73rem; font-weight: 800; color: #48505b; margin: 0 0 4px; }
@@ -44,7 +49,7 @@
     .corner-table { display: grid; gap: 8px; }
     .corner-row { display: grid; grid-template-columns: 34px 1fr 1fr; gap: 6px; align-items: center; }
     .corner-row b { font-size: .75rem; color: var(--field); }
-    .poi-grid { display: grid; gap: 7px; max-height: 196px; overflow-y: auto; padding-right: 2px; }
+    .poi-grid { display: grid; gap: 7px; overflow-y: auto; padding-right: 2px; }
     .poi-card { width: 100%; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink); cursor: pointer; padding: 8px 9px; display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; gap: 8px; align-items: center; text-align: left; }
     .poi-card:hover { border-color: #aeb2a5; background: #fbfbf8; }
     .poi-card.selected { border-color: var(--osm); background: #eef8f6; }
@@ -72,11 +77,31 @@
     .metric span { display: block; color: var(--muted); font-size: .7rem; font-weight: 800; text-transform: uppercase; }
     .metric strong { display: block; margin-top: 4px; font-size: 1.1rem; }
     #map { height: 100%; width: 100%; background: #e8e3d6; }
-    .mapbar { position: absolute; top: 14px; right: 14px; z-index: 500; display: flex; gap: 8px; align-items: center; }
+    .mapbar { position: absolute; top: 14px; right: 14px; z-index: 650; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; max-width: calc(100% - 28px); }
     .pill { border: 1px solid rgba(255,255,255,.65); background: rgba(23,32,42,.82); color: #fff; padding: 8px 10px; border-radius: 8px; font-size: .8rem; font-weight: 800; box-shadow: 0 8px 20px rgba(0,0,0,.22); }
+    .pill-button { min-height: 36px; border: 1px solid rgba(255,255,255,.65); background: rgba(23,32,42,.82); color: #fff; padding: 0 11px; border-radius: 8px; font-size: .8rem; font-weight: 800; cursor: pointer; box-shadow: 0 8px 20px rgba(0,0,0,.22); }
+    .pill-button.active { background: var(--osm); }
+    .layer-toggle { display: inline-grid; grid-template-columns: 1fr 1fr; border: 1px solid rgba(255,255,255,.65); border-radius: 8px; overflow: hidden; background: rgba(255,255,255,.9); box-shadow: 0 8px 20px rgba(0,0,0,.16); }
+    .layer-toggle button { min-height: 34px; min-width: 58px; border: 0; background: transparent; color: var(--ink); cursor: pointer; font-size: .78rem; font-weight: 800; }
+    .layer-toggle button.active { background: var(--ink); color: #fff; }
+    .waypoint-drawer { position: absolute; top: 64px; right: 14px; bottom: 18px; z-index: 620; width: min(340px, calc(100vw - 28px)); border: 1px solid rgba(255,255,255,.72); border-radius: 8px; background: rgba(255,255,255,.96); box-shadow: 0 18px 42px rgba(0,0,0,.24); display: flex; flex-direction: column; transform: translateX(calc(100% + 18px)); transition: transform .2s ease; pointer-events: none; }
+    .waypoint-drawer.open { transform: translateX(0); pointer-events: auto; }
+    .drawer-head { min-height: 48px; padding: 0 12px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); }
+    .drawer-title { font-size: .86rem; font-weight: 900; text-transform: uppercase; color: #3d4652; }
+    .drawer-body { min-height: 0; padding: 12px; overflow-y: auto; }
+    .drawer-hint { margin: 0 0 10px; color: var(--muted); font-size: .78rem; line-height: 1.35; }
+    .waypoint-form { width: 230px; display: grid; gap: 8px; }
+    .waypoint-form h3 { margin: 0; font-size: .9rem; }
+    .waypoint-form label { margin: 0; }
+    .waypoint-form .check-row { display: flex; gap: 8px; align-items: center; font-size: .78rem; color: var(--ink); }
+    .waypoint-form .check-row input { width: 16px; min-height: 16px; }
+    .waypoint-form button { min-height: 36px; border: 0; border-radius: 8px; background: var(--osm); color: #fff; font-weight: 800; cursor: pointer; }
     main { position: relative; min-width: 0; }
     .hidden { display: none; }
-    .legend { position: absolute; left: 14px; bottom: 18px; z-index: 500; border-radius: 8px; border: 1px solid rgba(255,255,255,.65); background: rgba(255,255,255,.92); padding: 9px 10px; display: grid; gap: 6px; font-size: .78rem; box-shadow: 0 8px 20px rgba(0,0,0,.16); }
+    .legend { position: absolute; left: 14px; bottom: 18px; z-index: 500; border-radius: 8px; border: 1px solid rgba(255,255,255,.65); background: rgba(255,255,255,.92); padding: 0; font-size: .78rem; box-shadow: 0 8px 20px rgba(0,0,0,.16); }
+    .legend summary { min-height: 34px; padding: 0 10px; display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 900; list-style: none; }
+    .legend summary::-webkit-details-marker { display: none; }
+    .legend-body { display: grid; gap: 6px; padding: 0 10px 9px; }
     .leg { display: flex; align-items: center; gap: 7px; white-space: nowrap; }
     .swatch { width: 18px; height: 4px; border-radius: 999px; background: var(--route); }
     .swatch.coverage { background: var(--field); }
@@ -89,6 +114,9 @@
       main { order: 1; }
       header { display: none; }
       .scroll { padding-bottom: 26px; }
+      .mapbar { top: 10px; right: 10px; }
+      .waypoint-drawer { top: 56px; left: 10px; right: 10px; bottom: 10px; width: auto; }
+      .legend { left: 10px; bottom: 10px; }
     }
   </style>
 </head>
@@ -106,8 +134,9 @@
       </div>
 
       <div class="scroll">
-        <section id="coveragePanel">
-          <p class="section-title">Field coverage</p>
+        <details id="coveragePanel" class="panel-section" open>
+          <summary>Field coverage</summary>
+          <div class="panel-body">
           <div class="grid2">
             <div class="field">
               <label for="rowSpacing">Row spacing m</label>
@@ -134,15 +163,17 @@
             </div>
           </div>
           <div class="corner-table" id="cornerInputs"></div>
-        </section>
+          </div>
+        </details>
 
-        <section id="missionPanel" class="hidden">
-          <p class="section-title">Semantic routing</p>
+        <details id="missionPanel" class="panel-section hidden" open>
+          <summary>Mission route</summary>
+          <div class="panel-body">
           <div class="grid2">
             <div class="field">
               <label for="routeStrategy">Strategy</label>
               <select id="routeStrategy">
-                <option value="osm">OSM roads</option>
+                <option value="osm">OSM paths</option>
                 <option value="cost">Local costmap A*</option>
                 <option value="direct">Direct interpolation</option>
               </select>
@@ -155,8 +186,8 @@
           <div class="field">
             <label for="osmProfile">OSM profile</label>
             <select id="osmProfile">
-              <option value="driving">Roads and tracks</option>
               <option value="foot">Foot paths</option>
+              <option value="driving">Roads and tracks</option>
             </select>
           </div>
           <div class="field">
@@ -167,22 +198,23 @@
             </div>
             <div id="missionList" class="mission-list"></div>
           </div>
-          <div class="field">
-            <label>Available POIs</label>
-            <div id="poiGrid" class="poi-grid"></div>
           </div>
-        </section>
+        </details>
 
-        <section>
-          <p class="section-title">Route summary</p>
+        <details class="panel-section" open>
+          <summary>Route summary</summary>
+          <div class="panel-body">
           <div class="stats">
             <div class="metric"><span>Points</span><strong id="statPoints">0</strong></div>
             <div class="metric"><span>Distance</span><strong id="statDistance">0 m</strong></div>
             <div class="metric"><span id="statRowsLabel">Rows</span><strong id="statRows">0</strong></div>
           </div>
-        </section>
+          </div>
+        </details>
 
-        <section>
+        <details class="panel-section" open>
+          <summary>Export</summary>
+          <div class="panel-body">
           <div class="actions">
             <button id="generateBtn" class="primary" type="button">Generate</button>
             <button id="fitBtn" class="secondary" type="button">Fit map</button>
@@ -194,19 +226,40 @@
           </div>
           <div style="height:8px"></div>
           <div id="status" class="status">Ready.</div>
-        </section>
+          </div>
+        </details>
       </div>
     </aside>
 
     <main>
       <div id="map"></div>
-      <div class="mapbar"><div id="modePill" class="pill">Coverage planning</div></div>
-      <div class="legend">
+      <div class="mapbar">
+        <div id="modePill" class="pill">Coverage planning</div>
+        <div class="layer-toggle" aria-label="Map view">
+          <button id="gpsViewBtn" type="button">GPS</button>
+          <button id="mapViewBtn" type="button">Map</button>
+        </div>
+        <button id="drawerToggle" class="pill-button hidden" type="button">Waypoints</button>
+      </div>
+      <aside id="waypointDrawer" class="waypoint-drawer hidden" aria-label="Mission waypoint picker">
+        <div class="drawer-head">
+          <span class="drawer-title">Add waypoints</span>
+          <button id="drawerClose" class="icon-btn" type="button" title="Close waypoint panel">×</button>
+        </div>
+        <div class="drawer-body">
+          <p class="drawer-hint">Click the map to create a named waypoint, or choose one of the available POIs below.</p>
+          <div id="poiGrid" class="poi-grid"></div>
+        </div>
+      </aside>
+      <details class="legend" open>
+        <summary>Legend</summary>
+        <div class="legend-body">
         <div class="leg"><span class="swatch coverage"></span>Coverage path</div>
-        <div class="leg"><span class="swatch osm"></span>OSM road route</div>
+        <div class="leg"><span class="swatch osm"></span>OSM path route</div>
         <div class="leg"><span class="swatch"></span>Direct route</div>
         <div class="leg"><span class="swatch cost"></span>Cost-aware route</div>
-      </div>
+        </div>
+      </details>
     </main>
   </div>
 
@@ -238,6 +291,9 @@ let currentWaypoints = [];
 let currentBounds = null;
 let missionStops = ["water_1", "arbustivo_2", "water_2"];
 let generationToken = 0;
+let drawerOpen = false;
+let customWaypointCounter = 1;
+const modeBaseView = {coverage: "gps", mission: "map"};
 
 function llToXY(lat, lon, origin) {
   const scale = Math.cos(origin[0] * Math.PI / 180);
@@ -278,6 +334,23 @@ function distanceRoute(wps) {
     total += Math.hypot(xy[0], xy[1]);
   }
   return total;
+}
+function distanceLatLng(a, b) {
+  const xy = llToXY(b[0], b[1], a);
+  return Math.hypot(xy[0], xy[1]);
+}
+function distancePoints(points) {
+  let total = 0;
+  for (let i = 0; i < points.length - 1; i++) total += distanceLatLng(points[i], points[i + 1]);
+  return total;
+}
+function appendRoutePoints(route, points) {
+  points.forEach(point => {
+    const last = route[route.length - 1];
+    if (!last || Math.abs(point[0] - last[0]) > 1e-11 || Math.abs(point[1] - last[1]) > 1e-11) {
+      route.push(point);
+    }
+  });
 }
 function generateCoverage() {
   const rowSpacing = Math.max(0.1, Number(document.getElementById("rowSpacing").value || 0.75));
@@ -341,24 +414,74 @@ function poiLabel(id) {
   const f = featureById(id);
   return {id: f.id, landcover: f.properties.landcover || "unknown"};
 }
-function osmUrl(ids, profile) {
-  const coords = ids.map(poiById).map(p => `${p[1]},${p[0]}`).join(";");
+function uniqueWaypointId(rawName) {
+  const fallback = `waypoint_${customWaypointCounter}`;
+  const slug = (rawName || fallback)
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  const base = slug || fallback;
+  customWaypointCounter += 1;
+  let candidate = base;
+  let suffix = 2;
+  while (poiGeojson.features.some(feature => feature.id === candidate)) {
+    candidate = `${base}_${suffix}`;
+    suffix += 1;
+  }
+  return candidate;
+}
+function addCustomWaypoint(name, landcover, lat, lon) {
+  const id = uniqueWaypointId(name);
+  poiGeojson.features.push({
+    id,
+    type: "Feature",
+    properties: {landcover, custom: true},
+    geometry: {type: "Point", coordinates: [lon, lat]},
+  });
+  return id;
+}
+function osmSegmentUrl(start, end, profile) {
+  const coords = `${start[1]},${start[0]};${end[1]},${end[0]}`;
   return `https://router.project-osrm.org/route/v1/${profile}/${coords}?overview=full&geometries=geojson&steps=false`;
 }
+function connectRoadSegmentToTargets(start, roadPoints, end, interval) {
+  if (!roadPoints.length) return interpolateRoute([start, end], interval);
+  const segment = [];
+  appendRoutePoints(segment, interpolateRoute([start, roadPoints[0]], interval));
+  appendRoutePoints(segment, interpolateRoute(roadPoints, interval));
+  appendRoutePoints(segment, interpolateRoute([roadPoints[roadPoints.length - 1], end], interval));
+  return segment;
+}
 async function generateOsmRoute(ids, interval) {
-  const profile = document.getElementById("osmProfile").value || "driving";
-  const response = await fetch(osmUrl(ids, profile));
-  if (!response.ok) throw new Error(`OSRM HTTP ${response.status}`);
-  const data = await response.json();
-  if (data.code !== "Ok" || !data.routes || !data.routes.length) {
-    throw new Error(data.message || data.code || "OSRM route unavailable");
+  const profile = document.getElementById("osmProfile").value || "foot";
+  const targets = ids.map(poiById);
+  const fullRoute = [];
+  let connectorDistance = 0;
+
+  for (let i = 0; i < targets.length - 1; i++) {
+    const start = targets[i];
+    const end = targets[i + 1];
+    const response = await fetch(osmSegmentUrl(start, end, profile));
+    if (!response.ok) throw new Error(`OSRM HTTP ${response.status}`);
+    const data = await response.json();
+    if (data.code !== "Ok" || !data.routes || !data.routes.length) {
+      throw new Error(data.message || data.code || "OSRM route unavailable");
+    }
+    const roadPoints = data.routes[0].geometry.coordinates.map(coord => [coord[1], coord[0]]);
+    if (roadPoints.length) {
+      connectorDistance += distanceLatLng(start, roadPoints[0]);
+      connectorDistance += distanceLatLng(roadPoints[roadPoints.length - 1], end);
+    }
+    appendRoutePoints(fullRoute, connectRoadSegmentToTargets(start, roadPoints, end, interval));
   }
-  const route = data.routes[0];
-  const roadPoints = route.geometry.coordinates.map(coord => [coord[1], coord[0]]);
-  const sampled = interpolateRoute(roadPoints, interval);
+
   return {
-    points: sampled,
-    distance_m: route.distance,
+    points: fullRoute,
+    distance_m: distancePoints(fullRoute),
+    connector_m: connectorDistance,
     profile,
   };
 }
@@ -504,7 +627,7 @@ async function generateMission() {
         ids,
         strategy,
         distance_m: route.distance_m,
-        message: `Generated ${route.points.length} OSM road waypoints.`,
+        message: `Generated ${route.points.length} OpenStreetMap path waypoints with target connectors.`,
       };
     } catch (err) {
       const fallback = generateCostRoute(ids);
@@ -529,11 +652,84 @@ async function generateMission() {
 }
 const map = L.map("map", {zoomControl: false, zoomSnap: 0.25}).setView([42.61443, -5.56353], 20);
 L.control.zoom({position: "bottomright"}).addTo(map);
-L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-  attribution: "&copy; OpenStreetMap contributors",
-  maxZoom: 19
-}).addTo(map);
+const baseLayers = {
+  gps: L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
+    attribution: "Tiles &copy; Esri",
+    maxNativeZoom: 19,
+    maxZoom: 22
+  }),
+  map: L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: "&copy; OpenStreetMap contributors",
+    maxZoom: 19
+  })
+};
+let activeBaseLayer = null;
 let layer = L.layerGroup().addTo(map);
+function setBaseView(view, remember = true) {
+  const next = baseLayers[view] ? view : "map";
+  if (activeBaseLayer) map.removeLayer(activeBaseLayer);
+  activeBaseLayer = baseLayers[next].addTo(map);
+  if (remember) modeBaseView[currentMode] = next;
+  document.getElementById("gpsViewBtn").classList.toggle("active", next === "gps");
+  document.getElementById("mapViewBtn").classList.toggle("active", next === "map");
+}
+function syncBaseView() {
+  setBaseView(modeBaseView[currentMode], false);
+}
+function setDrawer(open) {
+  drawerOpen = Boolean(open);
+  document.getElementById("waypointDrawer").classList.toggle("open", currentMode === "mission" && drawerOpen);
+  document.getElementById("drawerToggle").classList.toggle("active", currentMode === "mission" && drawerOpen);
+}
+function syncMissionDrawer() {
+  const isMission = currentMode === "mission";
+  document.getElementById("drawerToggle").classList.toggle("hidden", !isMission);
+  document.getElementById("waypointDrawer").classList.toggle("hidden", !isMission);
+  setDrawer(isMission && drawerOpen);
+}
+function openWaypointCreatePopup(latlng) {
+  if (currentMode !== "mission") return;
+
+  const form = document.createElement("form");
+  form.className = "waypoint-form";
+  form.innerHTML = `
+    <h3>New waypoint</h3>
+    <label>Name
+      <input name="name" type="text" placeholder="e.g. inspection_1" autocomplete="off" required>
+    </label>
+    <label>Type
+      <select name="landcover">
+        <option value="pastizal">pastizal</option>
+        <option value="arbustivo">arbustivo</option>
+        <option value="matorral">matorral</option>
+        <option value="water">water</option>
+        <option value="custom">custom</option>
+      </select>
+    </label>
+    <label class="check-row">
+      <input name="useNow" type="checkbox" checked>
+      Use in route now
+    </label>
+    <button type="submit">Add waypoint</button>`;
+
+  form.addEventListener("submit", event => {
+    event.preventDefault();
+    const data = new FormData(form);
+    const id = addCustomWaypoint(data.get("name"), data.get("landcover"), latlng.lat, latlng.lng);
+    renderPoiPicker();
+    setDrawer(true);
+    if (data.get("useNow")) addMissionStop(id);
+    else if (currentMode === "mission") generate();
+    map.closePopup();
+  });
+
+  L.popup({maxWidth: 260})
+    .setLatLng(latlng)
+    .setContent(form)
+    .openOn(map);
+
+  setTimeout(() => form.elements.name.focus(), 60);
+}
 function landColor(type) {
   return {pastizal:"#3a7d44", arbustivo:"#b65d13", matorral:"#734a9d", water:"#2f80ed"}[type] || "#555";
 }
@@ -545,7 +741,10 @@ function renderMissionMarkers() {
     const marker = L.circleMarker([f.geometry.coordinates[1], f.geometry.coordinates[0]], {
       radius: 7, color: "#fff", weight: 2, fillColor: landColor(f.properties.landcover), fillOpacity: .95
     }).bindTooltip(`${f.id} - ${f.properties.landcover}`).addTo(layer);
-    marker.on("click", () => addMissionStop(f.id));
+    marker.on("click", event => {
+      L.DomEvent.stopPropagation(event);
+      addMissionStop(f.id);
+    });
   });
 }
 function renderEmptyMission(message) {
@@ -630,7 +829,9 @@ function setMode(mode) {
   document.getElementById("missionTab").classList.toggle("active", mode === "mission");
   document.getElementById("coveragePanel").classList.toggle("hidden", mode !== "coverage");
   document.getElementById("missionPanel").classList.toggle("hidden", mode !== "mission");
-  document.getElementById("modePill").textContent = mode === "coverage" ? "Coverage planning" : "Semantic routing";
+  document.getElementById("modePill").textContent = mode === "coverage" ? "Coverage planning" : "Mission route";
+  syncBaseView();
+  syncMissionDrawer();
   generate();
 }
 function initInputs() {
@@ -648,6 +849,8 @@ function initInputs() {
     document.getElementById("routeStrategy").value = params.get("strategy") || "osm";
     setMode("mission");
   } else {
+    syncBaseView();
+    syncMissionDrawer();
     generate();
   }
 }
@@ -655,11 +858,16 @@ document.getElementById("generateBtn").addEventListener("click", generate);
 document.getElementById("fitBtn").addEventListener("click", fitMap);
 document.getElementById("coverageTab").addEventListener("click", () => setMode("coverage"));
 document.getElementById("missionTab").addEventListener("click", () => setMode("mission"));
+document.getElementById("gpsViewBtn").addEventListener("click", () => setBaseView("gps"));
+document.getElementById("mapViewBtn").addEventListener("click", () => setBaseView("map"));
+document.getElementById("drawerToggle").addEventListener("click", () => setDrawer(!drawerOpen));
+document.getElementById("drawerClose").addEventListener("click", () => setDrawer(false));
 document.getElementById("routeStrategy").addEventListener("change", generate);
 document.getElementById("routeSpacing").addEventListener("change", generate);
 document.getElementById("osmProfile").addEventListener("change", generate);
 document.getElementById("reverseMissionBtn").addEventListener("click", reverseMissionStops);
 document.getElementById("clearMissionBtn").addEventListener("click", clearMissionStops);
+map.on("click", event => openWaypointCreatePopup(event.latlng));
 document.getElementById("poiGrid").addEventListener("click", event => {
   const card = event.target.closest(".poi-card");
   if (card) addMissionStop(card.dataset.id);
