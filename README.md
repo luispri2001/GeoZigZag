@@ -30,7 +30,51 @@ followers.
 - CSV and YAML exports for downstream robot navigation.
 - Dependency-light Python core using only the standard library.
 
+## Current Scope
+
+This repository currently provides the geospatial route-planning part of the
+larger agricultural simulation workflow:
+
+- covered now: map preview, field coverage generation, semantic mission routing,
+  CSV/YAML route exports, reproducible CLI demo, and browser-based inspection.
+- not included yet: Geo2Gazebo terrain generation, Gazebo world creation,
+  WILDBOAR/Jabali simulation launch files, or ROS 2 crop-follow navigation
+  launchers.
+
+Use the exported waypoints as the stable interface for the next integration
+layer. Do not treat this repository as a complete ROS/Gazebo launcher until
+those adapters are added.
+
 ## Quick Start
+
+### Clone
+
+Clone the repository with SSH:
+
+```bash
+git clone git@github.com:luispri2001/GeoZigZag.git
+cd GeoZigZag
+```
+
+Optional but recommended on Linux:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install -r requirements.txt
+```
+
+Optional but recommended on Windows PowerShell:
+
+```powershell
+py -3 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+py -3 -m pip install -r requirements.txt
+```
+
+`requirements.txt` intentionally has no third-party runtime packages. The
+Python planner uses only the standard library. The web UI loads Leaflet and map
+tiles from CDNs, so the browser needs internet access for the map view.
 
 ### Web App
 
@@ -41,6 +85,12 @@ web/index.html
 ```
 
 Or serve the repository locally:
+
+```bash
+python3 -m http.server 8000 --bind 127.0.0.1
+```
+
+On Windows PowerShell:
 
 ```powershell
 py -3 -m http.server 8000 --bind 127.0.0.1
@@ -64,6 +114,12 @@ http://127.0.0.1:8000/web/index.html?mode=mission&strategy=cost
 
 From the repository root:
 
+```bash
+python3 -m geozigzag.cli --out outputs
+```
+
+On Windows PowerShell:
+
 ```powershell
 py -m geozigzag.cli --out outputs
 ```
@@ -85,6 +141,47 @@ The CLI generates:
 
 Generated output files are ignored by Git. The `outputs/.gitkeep` file only
 keeps the folder available in fresh clones.
+
+## Verification
+
+Run the local test suite:
+
+```bash
+python3 -m unittest discover -s tests -p "test_*.py"
+```
+
+Run the CLI smoke test:
+
+```bash
+python3 -m geozigzag.cli --out outputs
+```
+
+The default demo should produce a `summary.json` with these stable values:
+
+```json
+{
+  "coverage": {
+    "coverage_rows": 16,
+    "points": 224
+  },
+  "mission_direct": {
+    "points": 54
+  },
+  "mission_costmap": {
+    "points": 83
+  }
+}
+```
+
+Check that the web app is served:
+
+```bash
+python3 -m http.server 8000 --bind 127.0.0.1
+curl -I http://127.0.0.1:8000/web/index.html
+```
+
+The `curl` response should be `HTTP/1.0 200 OK`. Stop the server with
+`Ctrl+C` when finished.
 
 ## Output Schema
 
@@ -122,17 +219,11 @@ GeoZigZag/
 
 ## Development Checks
 
-Run the CLI smoke test:
-
-```powershell
-py -m geozigzag.cli --out outputs
-```
-
 Check that the public repository does not include generated route files:
 
-```powershell
+```bash
 git status --short --ignored
 ```
 
-The core planner is standard-library only. `requirements.txt` documents that
-there are no required third-party Python runtime dependencies.
+Generated files under `outputs/` should appear as ignored files. Source changes
+should be limited to intentional edits.
