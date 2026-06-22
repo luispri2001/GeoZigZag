@@ -99,10 +99,18 @@ py -3 -m http.server 8000 --bind 127.0.0.1
 Then open:
 
 ```text
-http://127.0.0.1:8000/web/index.html
+http://127.0.0.1:8000/
 ```
 
 The browser UI needs internet access for Leaflet and satellite map tiles.
+
+If port `8000` is already in use, choose another port:
+
+```bash
+python3 -m http.server 8001 --bind 127.0.0.1
+```
+
+Then open `http://127.0.0.1:8001/`.
 
 To open the mission route view directly:
 
@@ -177,7 +185,7 @@ Check that the web app is served:
 
 ```bash
 python3 -m http.server 8000 --bind 127.0.0.1
-curl -I http://127.0.0.1:8000/web/index.html
+curl -I http://127.0.0.1:8000/
 ```
 
 The `curl` response should be `HTTP/1.0 200 OK`. Stop the server with
