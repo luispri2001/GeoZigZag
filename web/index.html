@@ -14,6 +14,7 @@
       --line: #d8d9d1;
       --field: #3a7d44;
       --route: #1764aa;
+      --osm: #087f7a;
       --warn: #b65d13;
       --water: #2f80ed;
       --soil: #9a6b3f;
@@ -39,9 +40,26 @@
     textarea { min-height: 72px; resize: vertical; line-height: 1.35; }
     .field { margin-bottom: 9px; }
     .field:last-child { margin-bottom: 0; }
+    .small-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0 10px; }
     .corner-table { display: grid; gap: 8px; }
     .corner-row { display: grid; grid-template-columns: 34px 1fr 1fr; gap: 6px; align-items: center; }
     .corner-row b { font-size: .75rem; color: var(--field); }
+    .poi-grid { display: grid; gap: 7px; max-height: 196px; overflow-y: auto; padding-right: 2px; }
+    .poi-card { width: 100%; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink); cursor: pointer; padding: 8px 9px; display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; gap: 8px; align-items: center; text-align: left; }
+    .poi-card:hover { border-color: #aeb2a5; background: #fbfbf8; }
+    .poi-card.selected { border-color: var(--osm); background: #eef8f6; }
+    .poi-dot { width: 10px; height: 10px; border-radius: 999px; background: #555; }
+    .poi-main { min-width: 0; }
+    .poi-name { display: block; font-size: .86rem; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .poi-type { display: block; color: var(--muted); font-size: .72rem; margin-top: 2px; }
+    .poi-add { font-weight: 900; color: var(--osm); }
+    .mission-list { display: grid; gap: 7px; min-height: 40px; }
+    .mission-step { border: 1px solid var(--line); border-radius: 8px; background: #fbfbf8; padding: 7px; display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+    .mission-index { width: 24px; height: 24px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; background: var(--ink); color: #fff; font-size: .76rem; font-weight: 800; }
+    .mission-controls { display: flex; gap: 4px; }
+    .icon-btn { width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--line); background: #fff; color: var(--ink); cursor: pointer; font-weight: 900; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
+    .icon-btn:hover { border-color: #aeb2a5; background: #fff; }
+    .empty-state { color: var(--muted); font-size: .82rem; border: 1px dashed var(--line); border-radius: 8px; padding: 10px; background: #fbfbf8; }
     .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     button.primary, button.secondary, a.download { min-height: 40px; border-radius: 8px; border: 1px solid transparent; cursor: pointer; font-weight: 800; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; padding: 0 10px; }
     button.primary { background: var(--field); color: #fff; }
@@ -62,6 +80,7 @@
     .leg { display: flex; align-items: center; gap: 7px; white-space: nowrap; }
     .swatch { width: 18px; height: 4px; border-radius: 999px; background: var(--route); }
     .swatch.coverage { background: var(--field); }
+    .swatch.osm { background: var(--osm); }
     .swatch.cost { background: var(--warn); }
     .status { min-height: 18px; color: var(--muted); font-size: .8rem; }
     @media (max-width: 820px) {
@@ -119,26 +138,38 @@
 
         <section id="missionPanel" class="hidden">
           <p class="section-title">Semantic routing</p>
-          <div class="field">
-            <label for="missionOrder">Visit order</label>
-            <textarea id="missionOrder">water_1, arbustivo_2, water_2</textarea>
-          </div>
           <div class="grid2">
             <div class="field">
               <label for="routeStrategy">Strategy</label>
               <select id="routeStrategy">
+                <option value="osm">OSM roads</option>
+                <option value="cost">Local costmap A*</option>
                 <option value="direct">Direct interpolation</option>
-                <option value="cost">Costmap A*</option>
               </select>
             </div>
             <div class="field">
-              <label for="routeSpacing">Interval m</label>
+              <label for="routeSpacing">Waypoint spacing m</label>
               <input id="routeSpacing" type="number" min="2" step="1" value="10">
             </div>
           </div>
           <div class="field">
-            <label for="poiList">Available POIs</label>
-            <textarea id="poiList" readonly></textarea>
+            <label for="osmProfile">OSM profile</label>
+            <select id="osmProfile">
+              <option value="driving">Roads and tracks</option>
+              <option value="foot">Foot paths</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Route order</label>
+            <div class="small-actions">
+              <button id="reverseMissionBtn" class="secondary" type="button" title="Reverse order">Reverse</button>
+              <button id="clearMissionBtn" class="secondary" type="button" title="Clear route">Clear</button>
+            </div>
+            <div id="missionList" class="mission-list"></div>
+          </div>
+          <div class="field">
+            <label>Available POIs</label>
+            <div id="poiGrid" class="poi-grid"></div>
           </div>
         </section>
 
@@ -147,7 +178,7 @@
           <div class="stats">
             <div class="metric"><span>Points</span><strong id="statPoints">0</strong></div>
             <div class="metric"><span>Distance</span><strong id="statDistance">0 m</strong></div>
-            <div class="metric"><span>Rows</span><strong id="statRows">0</strong></div>
+            <div class="metric"><span id="statRowsLabel">Rows</span><strong id="statRows">0</strong></div>
           </div>
         </section>
 
@@ -172,6 +203,7 @@
       <div class="mapbar"><div id="modePill" class="pill">Coverage planning</div></div>
       <div class="legend">
         <div class="leg"><span class="swatch coverage"></span>Coverage path</div>
+        <div class="leg"><span class="swatch osm"></span>OSM road route</div>
         <div class="leg"><span class="swatch"></span>Direct route</div>
         <div class="leg"><span class="swatch cost"></span>Cost-aware route</div>
       </div>
@@ -204,6 +236,8 @@ const landcoverCost = {road:1, track:1.5, pastizal:10, arbustivo:30, matorral:80
 let currentMode = "coverage";
 let currentWaypoints = [];
 let currentBounds = null;
+let missionStops = ["water_1", "arbustivo_2", "water_2"];
+let generationToken = 0;
 
 function llToXY(lat, lon, origin) {
   const scale = Math.cos(origin[0] * Math.PI / 180);
@@ -294,10 +328,110 @@ function interpolateRoute(points, interval) {
   }
   return route;
 }
-function poiById(id) {
+function featureById(id) {
   const f = poiGeojson.features.find(x => x.id === id);
   if (!f) throw new Error(`Unknown POI: ${id}`);
+  return f;
+}
+function poiById(id) {
+  const f = featureById(id);
   return [f.geometry.coordinates[1], f.geometry.coordinates[0]];
+}
+function poiLabel(id) {
+  const f = featureById(id);
+  return {id: f.id, landcover: f.properties.landcover || "unknown"};
+}
+function osmUrl(ids, profile) {
+  const coords = ids.map(poiById).map(p => `${p[1]},${p[0]}`).join(";");
+  return `https://router.project-osrm.org/route/v1/${profile}/${coords}?overview=full&geometries=geojson&steps=false`;
+}
+async function generateOsmRoute(ids, interval) {
+  const profile = document.getElementById("osmProfile").value || "driving";
+  const response = await fetch(osmUrl(ids, profile));
+  if (!response.ok) throw new Error(`OSRM HTTP ${response.status}`);
+  const data = await response.json();
+  if (data.code !== "Ok" || !data.routes || !data.routes.length) {
+    throw new Error(data.message || data.code || "OSRM route unavailable");
+  }
+  const route = data.routes[0];
+  const roadPoints = route.geometry.coordinates.map(coord => [coord[1], coord[0]]);
+  const sampled = interpolateRoute(roadPoints, interval);
+  return {
+    points: sampled,
+    distance_m: route.distance,
+    profile,
+  };
+}
+function renderPoiPicker() {
+  const grid = document.getElementById("poiGrid");
+  const list = document.getElementById("missionList");
+  grid.innerHTML = "";
+  list.innerHTML = "";
+
+  missionStops.forEach((id, index) => {
+    const info = poiLabel(id);
+    const row = document.createElement("div");
+    row.className = "mission-step";
+    row.innerHTML = `
+      <span class="mission-index">${index + 1}</span>
+      <span class="poi-main"><span class="poi-name">${info.id}</span><span class="poi-type">${info.landcover}</span></span>
+      <span class="mission-controls">
+        <button class="icon-btn" type="button" title="Move up" data-action="up" data-index="${index}">↑</button>
+        <button class="icon-btn" type="button" title="Move down" data-action="down" data-index="${index}">↓</button>
+        <button class="icon-btn" type="button" title="Remove" data-action="remove" data-index="${index}">×</button>
+      </span>`;
+    list.appendChild(row);
+  });
+
+  if (!missionStops.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty-state";
+    empty.textContent = "No route points selected.";
+    list.appendChild(empty);
+  }
+
+  poiGeojson.features.forEach(feature => {
+    const selected = missionStops.includes(feature.id);
+    const button = document.createElement("button");
+    button.className = `poi-card${selected ? " selected" : ""}`;
+    button.type = "button";
+    button.dataset.id = feature.id;
+    button.title = selected ? "Already selected" : "Add waypoint";
+    button.innerHTML = `
+      <span class="poi-dot" style="background:${landColor(feature.properties.landcover)}"></span>
+      <span class="poi-main"><span class="poi-name">${feature.id}</span><span class="poi-type">${feature.properties.landcover}</span></span>
+      <span class="poi-add">${selected ? "✓" : "+"}</span>`;
+    grid.appendChild(button);
+  });
+}
+function refreshMissionRoute() {
+  renderPoiPicker();
+  if (currentMode === "mission") generate();
+}
+function addMissionStop(id) {
+  if (!missionStops.includes(id)) {
+    missionStops.push(id);
+    refreshMissionRoute();
+  }
+}
+function moveMissionStop(index, delta) {
+  const next = index + delta;
+  if (next < 0 || next >= missionStops.length) return;
+  const [item] = missionStops.splice(index, 1);
+  missionStops.splice(next, 0, item);
+  refreshMissionRoute();
+}
+function removeMissionStop(index) {
+  missionStops.splice(index, 1);
+  refreshMissionRoute();
+}
+function reverseMissionStops() {
+  missionStops.reverse();
+  refreshMissionRoute();
+}
+function clearMissionStops() {
+  missionStops = [];
+  refreshMissionRoute();
 }
 function generateCostRoute(ids) {
   const points = ids.map(poiById);
@@ -355,23 +489,77 @@ function generateCostRoute(ids) {
   }
   return route;
 }
-function generateMission() {
-  const ids = document.getElementById("missionOrder").value.split(",").map(x => x.trim()).filter(Boolean);
+async function generateMission() {
+  const ids = missionStops.slice();
   const interval = Math.max(2, Number(document.getElementById("routeSpacing").value || 10));
   const strategy = document.getElementById("routeStrategy").value;
+  if (ids.length < 2) throw new Error("Select at least two POIs.");
+
+  if (strategy === "osm") {
+    try {
+      const route = await generateOsmRoute(ids, interval);
+      return {
+        waypoints: toWaypoints(route.points),
+        rows: "OSM",
+        ids,
+        strategy,
+        distance_m: route.distance_m,
+        message: `Generated ${route.points.length} OSM road waypoints.`,
+      };
+    } catch (err) {
+      const fallback = generateCostRoute(ids);
+      return {
+        waypoints: toWaypoints(fallback),
+        rows: "A*",
+        ids,
+        strategy: "cost",
+        message: `OSM route unavailable; generated ${fallback.length} local costmap waypoints.`,
+      };
+    }
+  }
+
   const route = strategy === "cost" ? generateCostRoute(ids) : interpolateRoute(ids.map(poiById), interval);
-  return {waypoints: toWaypoints(route), rows: "-", ids, strategy};
+  return {
+    waypoints: toWaypoints(route),
+    rows: strategy === "cost" ? "A*" : "Direct",
+    ids,
+    strategy,
+    message: `Generated ${route.length} ${strategy === "cost" ? "local costmap" : "direct"} waypoints.`,
+  };
 }
 const map = L.map("map", {zoomControl: false, zoomSnap: 0.25}).setView([42.61443, -5.56353], 20);
 L.control.zoom({position: "bottomright"}).addTo(map);
-L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
-  attribution: "Tiles © Esri",
-  maxNativeZoom: 19,
-  maxZoom: 22
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  attribution: "&copy; OpenStreetMap contributors",
+  maxZoom: 19
 }).addTo(map);
 let layer = L.layerGroup().addTo(map);
 function landColor(type) {
   return {pastizal:"#3a7d44", arbustivo:"#b65d13", matorral:"#734a9d", water:"#2f80ed"}[type] || "#555";
+}
+function routeColor(strategy) {
+  return {osm:"#087f7a", cost:"#b65d13", direct:"#1764aa"}[strategy] || "#1764aa";
+}
+function renderMissionMarkers() {
+  poiGeojson.features.forEach(f => {
+    const marker = L.circleMarker([f.geometry.coordinates[1], f.geometry.coordinates[0]], {
+      radius: 7, color: "#fff", weight: 2, fillColor: landColor(f.properties.landcover), fillOpacity: .95
+    }).bindTooltip(`${f.id} - ${f.properties.landcover}`).addTo(layer);
+    marker.on("click", () => addMissionStop(f.id));
+  });
+}
+function renderEmptyMission(message) {
+  currentWaypoints = [];
+  layer.clearLayers();
+  renderMissionMarkers();
+  currentBounds = L.latLngBounds(poiGeojson.features.map(f => [f.geometry.coordinates[1], f.geometry.coordinates[0]]));
+  fitMap();
+  document.getElementById("statPoints").textContent = "0";
+  document.getElementById("statDistance").textContent = "0 m";
+  document.getElementById("statRowsLabel").textContent = "Mode";
+  document.getElementById("statRows").textContent = "-";
+  document.getElementById("status").textContent = message;
+  updateDownloads();
 }
 function render(result) {
   currentWaypoints = result.waypoints;
@@ -381,21 +569,20 @@ function render(result) {
     L.polygon(result.polygon, {color:"#f2c94c", weight:2, fillColor:"#f2c94c", fillOpacity:.12}).addTo(layer);
     L.polyline(latlngs, {color:"#3a7d44", weight:4, opacity:.95}).addTo(layer);
   } else {
-    poiGeojson.features.forEach(f => L.circleMarker([f.geometry.coordinates[1], f.geometry.coordinates[0]], {
-      radius: 7, color: "#fff", weight: 2, fillColor: landColor(f.properties.landcover), fillOpacity: .95
-    }).bindTooltip(`${f.id} - ${f.properties.landcover}`).addTo(layer));
-    L.polyline(latlngs, {color: result.strategy === "cost" ? "#b65d13" : "#1764aa", weight:4, opacity:.95}).addTo(layer);
+    renderMissionMarkers();
+    L.polyline(latlngs, {color: routeColor(result.strategy), weight:4, opacity:.95}).addTo(layer);
   }
   latlngs.filter((_,i)=>i % Math.max(1, Math.floor(latlngs.length / 60)) === 0).forEach(p => L.circleMarker(p, {radius:2.4, color:"#fff", weight:1, fillColor:"#111", fillOpacity:1}).addTo(layer));
   currentBounds = L.latLngBounds(latlngs);
   fitMap();
   setTimeout(fitMap, 180);
   setTimeout(fitMap, 900);
-  const d = distanceRoute(result.waypoints);
+  const d = result.distance_m || distanceRoute(result.waypoints);
   document.getElementById("statPoints").textContent = String(result.waypoints.length);
   document.getElementById("statDistance").textContent = d >= 1000 ? `${(d/1000).toFixed(2)} km` : `${d.toFixed(1)} m`;
+  document.getElementById("statRowsLabel").textContent = currentMode === "coverage" ? "Rows" : "Mode";
   document.getElementById("statRows").textContent = String(result.rows);
-  document.getElementById("status").textContent = `Generated ${result.waypoints.length} waypoints.`;
+  document.getElementById("status").textContent = result.message || `Generated ${result.waypoints.length} waypoints.`;
   updateDownloads();
 }
 function fitMap() {
@@ -422,9 +609,20 @@ function updateDownloads() {
   set("downloadCsv", csv, `${currentMode}_waypoints.csv`, "text/csv");
   set("downloadYaml", yaml, `${currentMode}_waypoints.yaml`, "text/yaml");
 }
-function generate() {
-  try { render(currentMode === "coverage" ? generateCoverage() : generateMission()); }
-  catch (err) { document.getElementById("status").textContent = err.message; }
+async function generate() {
+  const token = ++generationToken;
+  try {
+    if (currentMode === "mission" && document.getElementById("routeStrategy").value === "osm") {
+      document.getElementById("status").textContent = "Routing with OSM...";
+    }
+    const result = currentMode === "coverage" ? generateCoverage() : await generateMission();
+    if (token === generationToken) render(result);
+  }
+  catch (err) {
+    if (token !== generationToken) return;
+    if (currentMode === "mission") renderEmptyMission(err.message);
+    else document.getElementById("status").textContent = err.message;
+  }
 }
 function setMode(mode) {
   currentMode = mode;
@@ -444,10 +642,10 @@ function initInputs() {
     row.innerHTML = `<b>${key.toUpperCase()}</b><input id="${key}Lat" value="${corners[key][0]}"><input id="${key}Lon" value="${corners[key][1]}">`;
     root.appendChild(row);
   }
-  document.getElementById("poiList").value = poiGeojson.features.map(f => `${f.id} (${f.properties.landcover})`).join("\n");
+  renderPoiPicker();
   const params = new URLSearchParams(location.search);
   if (params.get("mode") === "mission") {
-    document.getElementById("routeStrategy").value = params.get("strategy") || "cost";
+    document.getElementById("routeStrategy").value = params.get("strategy") || "osm";
     setMode("mission");
   } else {
     generate();
@@ -457,6 +655,23 @@ document.getElementById("generateBtn").addEventListener("click", generate);
 document.getElementById("fitBtn").addEventListener("click", fitMap);
 document.getElementById("coverageTab").addEventListener("click", () => setMode("coverage"));
 document.getElementById("missionTab").addEventListener("click", () => setMode("mission"));
+document.getElementById("routeStrategy").addEventListener("change", generate);
+document.getElementById("routeSpacing").addEventListener("change", generate);
+document.getElementById("osmProfile").addEventListener("change", generate);
+document.getElementById("reverseMissionBtn").addEventListener("click", reverseMissionStops);
+document.getElementById("clearMissionBtn").addEventListener("click", clearMissionStops);
+document.getElementById("poiGrid").addEventListener("click", event => {
+  const card = event.target.closest(".poi-card");
+  if (card) addMissionStop(card.dataset.id);
+});
+document.getElementById("missionList").addEventListener("click", event => {
+  const button = event.target.closest("button[data-action]");
+  if (!button) return;
+  const index = Number(button.dataset.index);
+  if (button.dataset.action === "up") moveMissionStop(index, -1);
+  if (button.dataset.action === "down") moveMissionStop(index, 1);
+  if (button.dataset.action === "remove") removeMissionStop(index);
+});
 initInputs();
 </script>
 </body>

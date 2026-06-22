@@ -4,7 +4,8 @@ GeoZigZag is a lightweight route-planning tool for agricultural robot missions.
 It joins two practical workflows in one repository:
 
 - **Field coverage**: generate back-and-forth zigzag waypoints from field corners.
-- **Mission routing**: connect GeoJSON targets with direct or cost-aware routes.
+- **Mission routing**: connect GeoJSON targets with OpenStreetMap road routes,
+  direct interpolation, or local cost-aware routes.
 
 The tool exports latitude, longitude, yaw, and planar quaternion values so the
 same route can be inspected in the browser and reused by ROS-style waypoint
@@ -22,11 +23,14 @@ followers.
 
 ## Features
 
-- Static Leaflet web app: open it directly or serve it from a local HTTP server.
+- Static Leaflet/OpenStreetMap web app: open it directly or serve it from a
+  local HTTP server.
 - Editable WGS84 field corners, row spacing, waypoint spacing, start corner, and
   row bearing.
 - GeoJSON mission targets with land-cover labels.
-- Direct interpolation and costmap A* route generation.
+- Clickable mission waypoint picker with route ordering controls.
+- Online OpenStreetMap/OSRM road routing, plus direct interpolation and local
+  costmap A* fallback routes.
 - CSV and YAML exports for downstream robot navigation.
 - Dependency-light Python core using only the standard library.
 
@@ -35,8 +39,9 @@ followers.
 This repository currently provides the geospatial route-planning part of the
 larger agricultural simulation workflow:
 
-- covered now: map preview, field coverage generation, semantic mission routing,
-  CSV/YAML route exports, reproducible CLI demo, and browser-based inspection.
+- covered now: map preview, field coverage generation, semantic mission routing
+  with selectable POIs, OSM road routing in the browser, CSV/YAML route exports,
+  reproducible CLI demo, and browser-based inspection.
 - not included yet: Geo2Gazebo terrain generation, Gazebo world creation,
   WILDBOAR/Jabali simulation launch files, or ROS 2 crop-follow navigation
   launchers.
@@ -73,8 +78,9 @@ py -3 -m pip install -r requirements.txt
 ```
 
 `requirements.txt` intentionally has no third-party runtime packages. The
-Python planner uses only the standard library. The web UI loads Leaflet and map
-tiles from CDNs, so the browser needs internet access for the map view.
+Python planner uses only the standard library. The web UI loads Leaflet,
+OpenStreetMap tiles, and OSRM road routes from public web services, so the
+browser needs internet access for the online map and OSM road-routing mode.
 
 ### Web App
 
@@ -102,7 +108,9 @@ Then open:
 http://127.0.0.1:8000/
 ```
 
-The browser UI needs internet access for Leaflet and satellite map tiles.
+The browser UI needs internet access for Leaflet and OpenStreetMap tiles.
+Mission routing defaults to `OSM roads`. If the OSRM service is unavailable,
+the browser falls back to the local costmap route.
 
 If port `8000` is already in use, choose another port:
 
@@ -115,7 +123,7 @@ Then open `http://127.0.0.1:8001/`.
 To open the mission route view directly:
 
 ```text
-http://127.0.0.1:8000/web/index.html?mode=mission&strategy=cost
+http://127.0.0.1:8000/web/index.html?mode=mission&strategy=osm
 ```
 
 ### Command-Line Demo
