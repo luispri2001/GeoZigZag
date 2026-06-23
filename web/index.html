@@ -88,6 +88,7 @@
     button.secondary, a.download { background: #fff; color: var(--ink); border-color: var(--line); }
     button.secondary:hover, a.download:hover { border-color: #aeb2a5; background: var(--soft); }
     button.secondary.active { background: var(--ink); color: #fff; border-color: var(--ink); }
+    button.secondary:disabled { opacity: .45; cursor: not-allowed; }
     button.danger { color: var(--danger); border-color: rgba(180,35,24,.28); }
     .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
     .metric { min-height: 58px; border: 1px solid var(--line); border-radius: 8px; padding: 9px; background: var(--soft); }
@@ -96,6 +97,7 @@
     .status { min-height: 18px; color: var(--muted); font-size: .8rem; line-height: 1.35; }
     .status.ok { color: var(--field); font-weight: 800; }
     .status.err { color: var(--danger); font-weight: 800; }
+    .status.info { color: var(--osm); font-weight: 800; }
     .status.pending { color: var(--warn); font-weight: 800; }
     .status.busy { color: var(--osm); font-weight: 800; }
     .status.warn { color: var(--warn); font-weight: 800; }
@@ -152,6 +154,11 @@
     .icon-btn { width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--line); background: #fff; color: var(--ink); cursor: pointer; font-weight: 900; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
     .icon-btn:hover { border-color: #aeb2a5; background: #fff; }
     .empty-state { color: var(--muted); font-size: .82rem; border: 1px dashed var(--line); border-radius: 8px; padding: 10px; background: var(--soft); }
+    .zone-list { display: grid; gap: 6px; margin-top: 8px; }
+    .zone-row { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 7px 8px; background: #fff; color: var(--muted); font-size: .76rem; }
+    .zone-row strong { color: var(--ink); }
+    .zone-row button { min-height: 28px; padding: 0 8px; }
+    .zone-actions { display: flex; gap: 6px; }
     .poi-grid { display: grid; gap: 7px; overflow-y: auto; padding-right: 2px; }
     .poi-card { width: 100%; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink); cursor: pointer; padding: 8px 9px; display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; gap: 8px; align-items: center; text-align: left; }
     .poi-card:hover { border-color: #aeb2a5; background: var(--soft); }
@@ -189,6 +196,12 @@
     .map-status-card { grid-column: 1 / -1; display: grid; gap: 7px; }
     .map-status-card .run-state { padding: 8px 9px; }
     .map-status-card .status { min-height: 0; }
+    .route-details { border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,.68); overflow: hidden; }
+    .route-details summary { min-height: 32px; padding: 0 9px; cursor: pointer; list-style: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #3d4652; font-size: .74rem; font-weight: 950; text-transform: uppercase; }
+    .route-details summary::-webkit-details-marker { display: none; }
+    .route-details summary::after { content: "⌄"; color: var(--muted); }
+    .route-details:not([open]) summary::after { transform: rotate(-90deg); }
+    .route-details-body { border-top: 1px solid var(--line); padding: 8px 9px; color: var(--muted); font-size: .74rem; line-height: 1.35; max-height: 120px; overflow-y: auto; white-space: pre-wrap; }
     .waypoint-backdrop { position: absolute; inset: 0; z-index: 700; background: rgba(17,24,39,.24); backdrop-filter: blur(1px); }
     .waypoint-backdrop.hidden { display: none; }
     .waypoint-drawer { position: absolute; top: 50%; left: max(18px, calc((100% - 420px - 418px) / 2)); transform: translateY(-50%) scale(.98); z-index: 780; width: min(420px, calc(100% - 452px)); max-height: min(78vh, calc(100% - 92px)); border: 1px solid rgba(255,255,255,.78); border-radius: 12px; background: rgba(255,255,255,.97); box-shadow: 0 26px 70px rgba(0,0,0,.3); display: flex; flex-direction: column; opacity: 0; pointer-events: none; transition: opacity .16s ease, transform .16s ease; }
@@ -218,7 +231,6 @@
     .swatch.coverage { background: var(--field); }
     .swatch.osm { background: var(--osm); }
     .swatch.cost { background: var(--warn); }
-    .swatch.building { background: rgba(180,35,24,.75); }
     .swatch.manual-obstacle { background: rgba(180,90,20,.85); }
 
     .cache-tools { border: 1px solid var(--line); border-radius: 8px; background: #fbfbf8; padding: 10px; margin: 0 0 10px; }
@@ -284,7 +296,7 @@
               <div id="rectFields">
                 <div class="actions" style="margin-bottom:10px">
                   <button class="secondary" id="drawRectBtn" type="button">Draw rectangle</button>
-                  <button class="secondary" id="perfectRectBtn" type="button">Square / align</button>
+                  <button class="secondary" id="perfectRectBtn" type="button">Make square</button>
                 </div>
                 <div class="corner-grid">
                   <div class="corner-card active-corner" id="card-nw"><div class="corner-label"><span class="corner-dot"></span>NW</div><input id="nw_lat" type="text" value="42.614491711416974" placeholder="lat"><input id="nw_lon" type="text" value="-5.563585388952936" placeholder="lon"></div>
@@ -375,32 +387,22 @@
 
         <div id="missionPanel" class="hidden">
           <details id="obstaclesSection" class="panel-section" open>
-            <summary>Obstacles / buildings</summary>
+            <summary>Forbidden zones</summary>
             <div class="panel-body">
               <div id="manualObstacleTools" class="cache-tools">
                 <div class="cache-head">
-                  <span class="cache-title">Manual building zones</span>
+                  <span class="cache-title">Manual forbidden zones</span>
                   <span id="manualObstacleStatus" class="cache-status">0 manual zones</span>
                 </div>
                 <div class="cache-actions four">
-                  <button id="drawManualObstacleBtn" class="secondary" type="button">Draw zone</button>
-                  <button id="finishManualObstacleBtn" class="secondary" type="button">Close zone</button>
+                  <button id="drawManualObstacleBtn" class="secondary" type="button" title="Draw a forbidden zone on the map">Draw forbidden zone</button>
+                  <button id="finishManualObstacleBtn" class="secondary" type="button" title="Finish the current forbidden-zone polygon">Finish drawing</button>
                   <button id="cancelManualObstacleBtn" class="secondary" type="button">Cancel drawing</button>
-                  <button id="clearManualObstacleBtn" class="secondary danger" type="button">Clear zones</button>
+                  <button id="clearManualObstacleBtn" class="secondary danger" type="button">Delete all zones</button>
                 </div>
+                <div id="manualObstacleList" class="zone-list"></div>
               </div>
-              <div id="buildingCacheTools" class="cache-tools">
-                <div class="cache-head">
-                  <span class="cache-title">Local OSM building cache</span>
-                  <span id="buildingCacheStatus" class="cache-status">0 tiles · 0 buildings</span>
-                </div>
-                <div class="cache-actions three">
-                  <button id="preloadVisibleBuildingsBtn" class="secondary" type="button" title="Download building=* for the current map view">Preload visible area</button>
-                  <button id="preloadRouteBuildingsBtn" class="secondary" type="button" title="Download building=* around the current route points">Preload route area</button>
-                  <button id="clearBuildingCacheBtn" class="secondary danger" type="button" title="Clear browser building cache">Clear cache</button>
-                </div>
-              </div>
-              <p id="obstacleHint" class="compact-note">Draw zones around houses or sheds missing from OSM, then use Balanced or Strict mode and press Generate.</p>
+              <p id="obstacleHint" class="compact-note">Draw forbidden areas manually. Balanced or Strict OSM mode can use them for local avoidance.</p>
             </div>
           </details>
 
@@ -431,7 +433,7 @@
                   <input id="osmMaxSnap" type="number" min="1" step="1" value="50">
                 </div>
                 <div class="field">
-                  <label for="osmBuildingBuffer">Building margin m</label>
+                  <label for="osmBuildingBuffer">Zone margin m</label>
                   <input id="osmBuildingBuffer" type="number" min="0" step="0.5" value="2">
                 </div>
               </div>
@@ -440,7 +442,7 @@
                 <div class="advanced-body">
                   <div class="grid2">
                     <div class="field">
-                      <label for="osmAvoidBuildings">Building avoidance</label>
+                      <label for="osmAvoidBuildings">Forbidden-zone avoidance</label>
                       <select id="osmAvoidBuildings">
                         <option value="no" selected>Off</option>
                         <option value="yes">On</option>
@@ -535,6 +537,10 @@
             <div id="runState" class="run-state idle"><div><strong>No route generated</strong><span>Set the field or mission and press Generate.</span></div></div>
             <div id="timingState" class="timing-state">Processing time: —</div>
             <div id="status" class="status">Ready.</div>
+            <details id="routeDetails" class="route-details hidden">
+              <summary>Route details</summary>
+              <div id="routeDetailsBody" class="route-details-body"></div>
+            </details>
           </div>
         </section>
       </div>
@@ -577,17 +583,9 @@
           </div>
         </div>
       </section>
-      <details class="legend">
+      <details id="mapLegend" class="legend">
         <summary>Legend</summary>
-        <div class="legend-body">
-          <div class="leg"><span class="swatch poly"></span>Field polygon</div>
-          <div class="leg"><span class="swatch coverage"></span>Coverage / furrows</div>
-          <div class="leg"><span class="swatch osm"></span>OSM mission</div>
-          <div class="leg"><span class="swatch"></span>Direct mission</div>
-          <div class="leg"><span class="swatch cost"></span>Cost-aware mission</div>
-          <div class="leg"><span class="swatch building"></span>OSM buildings guard</div>
-          <div class="leg"><span class="swatch manual-obstacle"></span>Manual exclusion zone</div>
-        </div>
+        <div id="legendBody" class="legend-body"></div>
       </details>
     </main>
   </div>
@@ -642,6 +640,7 @@ let lastProcessingMs = 0;
 let manualObstacles = [];
 let manualObstacleDraft = [];
 let manualObstacleDrawMode = false;
+let manualObstacleEditSnapshot = null;
 
 // Keep GPS/satellite as the default view; users can switch to the map layer.
 const modeBaseView = {coverage: "gps", mission: "gps"};
@@ -667,7 +666,6 @@ const baseLayers = {
 const fieldLayer = L.layerGroup().addTo(map);
 const resultLayer = L.layerGroup().addTo(map);
 const missionLayer = L.layerGroup().addTo(map);
-const buildingLayer = L.layerGroup().addTo(map);
 const manualObstacleLayer = L.layerGroup().addTo(map);
 const markerLayer = L.layerGroup().addTo(map);
 
@@ -689,6 +687,41 @@ function setStatus(message, type = "") {
   const el = $("status");
   el.className = "status" + (type ? " " + type : "");
   el.textContent = message;
+}
+function setRouteDetails(lines = [], title = "Route details") {
+  const panel = $("routeDetails");
+  const body = $("routeDetailsBody");
+  if (!panel || !body) return;
+  const clean = (Array.isArray(lines) ? lines : [lines]).map(v => String(v || "").trim()).filter(Boolean);
+  panel.classList.toggle("hidden", clean.length === 0);
+  panel.open = false;
+  const summary = panel.querySelector("summary");
+  if (summary) summary.textContent = title;
+  body.textContent = clean.join("\n");
+}
+function clearRouteDetails() {
+  setRouteDetails([]);
+}
+function updateLegend() {
+  const legend = $("mapLegend");
+  const body = $("legendBody");
+  if (!legend || !body) return;
+  const items = [];
+  if (appMode === "coverage") {
+    if (currentCoveragePolygon()) items.push(["poly", "Field boundary"]);
+    if (currentWaypoints.length) items.push(["coverage", "Furrows"]);
+  } else {
+    const strategy = safeVal("routeStrategy", "direct");
+    if (currentWaypoints.length) {
+      const cls = strategy === "osm" ? "osm" : strategy === "cost" ? "cost" : "";
+      const label = strategy === "osm" ? "OSM route" : strategy === "cost" ? "Cost-aware route" : "Direct route";
+      items.push([cls, label]);
+    }
+    if (missionStops.length || poiGeojson.features.length) items.push(["poly", "Waypoints"]);
+    if (manualObstacles.length || manualObstacleDraft.length) items.push(["manual-obstacle", "Forbidden zone"]);
+  }
+  legend.classList.toggle("hidden", items.length === 0);
+  body.innerHTML = items.map(([cls, label]) => `<div class="leg"><span class="swatch ${cls}"></span>${label}</div>`).join("");
 }
 function nextPaint() {
   return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
@@ -727,7 +760,7 @@ function updateLoadingDetail(detail) {
   const elapsedMs = generationStartedAtMs ? performance.now() - generationStartedAtMs : 0;
   const el = $("loadingDetail");
   const elapsedText = elapsedMs ? ` · ${formatProcessingTime(elapsedMs)}` : "";
-  const extra = elapsedMs >= 12000 ? " · waiting for OSRM/Overpass" : "";
+  const extra = elapsedMs >= 12000 ? " · waiting for routing service" : "";
   if (el) el.textContent = `${detail}${elapsedText}${extra}`;
   setTimingState("busy", `Processing: ${formatProcessingTime(elapsedMs)}${extra}`);
 }
@@ -790,6 +823,8 @@ function markDirty(reason = "Pending changes.", auto = false) {
   setRunState("pending", "Pending changes", detail);
   setStatus(detail, "pending");
   setTimingState("", "Processing time: —");
+  clearRouteDetails();
+  updateLegend();
 }
 function setInitialReadyState() {
   routeDirty = true;
@@ -798,6 +833,8 @@ function setInitialReadyState() {
   setRunState("idle", "No route generated", "Set the field or mission and press Generate.");
   setStatus("Ready.");
   setTimingState("", "Processing time: —");
+  clearRouteDetails();
+  updateLegend();
 }
 function scheduleGenerate(reason = "Change detected.", delay = 650) {
   if (pendingGenerateTimer) clearTimeout(pendingGenerateTimer);
@@ -821,9 +858,11 @@ function failGenerationState(message) {
   setDownloadsEnabled(false);
   const elapsed = generationStartedAtMs ? performance.now() - generationStartedAtMs : lastProcessingMs;
   const suffix = elapsed ? ` · after ${formatProcessingTime(elapsed)}` : "";
-  setRunState("err", "Generation error", `${message}${suffix}`);
-  setStatus(`${message}${suffix}`, "err");
+  setRunState("err", "Route could not be generated", `Check route details.${suffix}`);
+  setStatus("Route could not be generated. Check route details for more information.", "err");
+  setRouteDetails([message], "Error details");
   if (elapsed) setTimingState("err", `Time to error: ${formatProcessingTime(elapsed)}`);
+  updateLegend();
 }
 function llToXY(lat, lon, origin) {
   const scale = Math.cos(origin[0] * Math.PI / 180);
@@ -1088,7 +1127,7 @@ function createRectMarkers() {
   for (const k of ["nw", "ne", "sw", "se"]) {
     const p = getCorner(k);
     rectMarkers[k] = L.marker(p, {draggable: true, icon: markerIcon(k)}).addTo(markerLayer);
-    rectMarkers[k].bindTooltip(k.toUpperCase() + (k === startCorner ? " (inicio)" : ""), {direction:"right", permanent:false});
+    rectMarkers[k].bindTooltip(k.toUpperCase() + (k === startCorner ? " (start)" : ""), {direction:"right", permanent:false});
     rectMarkers[k].on("drag", e => {
       setCorner(k, e.latlng.lat, e.latlng.lng);
       updateRectFromInputs(false);
@@ -1108,6 +1147,7 @@ function updateRectFromInputs(resetSliders = false) {
   currentBounds = L.latLngBounds([c.nw, c.ne, c.se, c.sw]);
   if (resetSliders) syncRectSlidersFromInputs(true);
   syncFurrowControls();
+  updateLegend();
 }
 function applyRectBounds(bounds) {
   setCornerInputsFromBounds(bounds);
@@ -1189,7 +1229,8 @@ function startRectDraw() {
   map.getContainer().style.cursor = "crosshair";
   $("drawRectBtn").textContent = "Cancel drawing";
   $("drawRectBtn").classList.add("active");
-  setStatus("Click and drag on the map to draw the field.", "ok");
+  setStatus("Drawing mode enabled. Click and drag on the map to draw the field.", "info");
+  updateLegend();
   map.on("mousedown", onRectDrawStart);
 }
 function cancelRectDraw(message = true) {
@@ -1202,7 +1243,8 @@ function cancelRectDraw(message = true) {
   document.removeEventListener("mousemove", onRectDrawMove);
   document.removeEventListener("mouseup", onRectDrawEnd);
   rectDrawStart = null;
-  if (message) setStatus("Drawing cancelled.");
+  if (message) setStatus("Drawing cancelled.", "info");
+  updateLegend();
 }
 function eventLatLng(e) {
   const rect = map.getContainer().getBoundingClientRect();
@@ -1498,9 +1540,9 @@ function endpointBridgeExact(fromPoint, toPoint, interval, endpointMode, buildin
   if (d < 0.25) return [fromPoint, toPoint];
   if (endpointMode === "exact_avoid") {
     if (!buildings || !buildings.length) {
-      const msg = `Exact connection ${label}: no OSM buildings or manual forbidden zones are available to validate the exact bridge.`;
+      const msg = `Exact connection ${label}: no manual forbidden zones are available to validate the exact bridge.`;
       if (!unsafeFallback) {
-        throw new Error(`${msg} In "Block generation" mode, the tool cannot guarantee that the route avoids a building. Draw a manual forbidden zone around the building visible in satellite view or preload valid OSM buildings.`);
+        throw new Error(`${msg} In "Block generation" mode, draw a manual forbidden zone around the obstacle and generate again.`);
       }
       warnings.push(`${msg} A direct bridge is used only as a visual fallback.`);
       return interpolateRoute([fromPoint, toPoint], interval);
@@ -1509,7 +1551,7 @@ function endpointBridgeExact(fromPoint, toPoint, interval, endpointMode, buildin
       const directHits = routeBuildingHits([fromPoint, toPoint], buildings, bufferM);
       if (!directHits.length) return interpolateRoute([fromPoint, toPoint], interval);
       const safe = localAstarAroundBuildings(fromPoint, toPoint, buildings, bufferM, Math.max(1.5, interval / 2));
-      warnings.push(`Exact connection ${label}: local A* is used around a building/forbidden zone to reach the exact point.`);
+      warnings.push(`Exact connection ${label}: local A* is used around a forbidden zone to reach the exact point.`);
       return safe;
     } catch (err) {
       const msg = `Exact connection ${label}: local A* could not avoid the obstacle (${err.message || err}).`;
@@ -1527,9 +1569,9 @@ function connectSelectedRouteToTargets(start, roadPoints, end, interval, endpoin
   const directMode = endpointMode === "exact_direct" || endpointMode === "exact";
   if (!safeMode && !directMode) return roadPoints;
   const segment = [];
-  appendRoutePoints(segment, endpointBridgeExact(start, roadPoints[0], interval, endpointMode, buildings, bufferM, `${label} inicio`, warnings, unsafeFallback));
+  appendRoutePoints(segment, endpointBridgeExact(start, roadPoints[0], interval, endpointMode, buildings, bufferM, `${label} start`, warnings, unsafeFallback));
   appendRoutePoints(segment, roadPoints);
-  appendRoutePoints(segment, endpointBridgeExact(roadPoints[roadPoints.length - 1], end, interval, endpointMode, buildings, bufferM, `${label} fin`, warnings, unsafeFallback));
+  appendRoutePoints(segment, endpointBridgeExact(roadPoints[roadPoints.length - 1], end, interval, endpointMode, buildings, bufferM, `${label} end`, warnings, unsafeFallback));
   return segment;
 }
 function routeBBox(points) {
@@ -1571,7 +1613,20 @@ function updateManualObstacleStatus() {
   const el = $("manualObstacleStatus");
   if (el) {
     const count = manualObstacles.length;
-    el.textContent = `${count} manual zone${count === 1 ? "" : "s"}` + (manualObstacleDrawMode ? ` · drawing ${manualObstacleDraft.length}` : "");
+    const action = manualObstacleEditSnapshot ? "editing" : "drawing";
+    el.textContent = `${count} manual zone${count === 1 ? "" : "s"}` + (manualObstacleDrawMode ? ` · ${action} ${manualObstacleDraft.length}` : "");
+  }
+  const drawBtn = $("drawManualObstacleBtn");
+  const finishBtn = $("finishManualObstacleBtn");
+  const cancelBtn = $("cancelManualObstacleBtn");
+  if (drawBtn) drawBtn.classList.toggle("active", manualObstacleDrawMode);
+  if (finishBtn) finishBtn.disabled = !manualObstacleDrawMode;
+  if (cancelBtn) cancelBtn.disabled = !manualObstacleDrawMode;
+  const list = $("manualObstacleList");
+  if (list) {
+    list.innerHTML = manualObstacles.length
+      ? manualObstacles.map((zone, i) => `<div class="zone-row"><span><strong>Zone ${i + 1}</strong><br>${Math.max(0, (zone.ring || []).length - 1)} points</span><span class="zone-actions"><button class="secondary" type="button" data-zone-edit="${i}">Edit</button><button class="secondary danger" type="button" data-zone-delete="${i}">Delete</button></span></div>`).join("")
+      : "";
   }
 }
 function drawManualObstacles() {
@@ -1584,7 +1639,7 @@ function drawManualObstacles() {
       fillColor: "#b65d13",
       fillOpacity: 0.28,
       dashArray: "6,4"
-    }).addTo(manualObstacleLayer).bindTooltip("Manual building / forbidden zone", {direction:"center"});
+    }).addTo(manualObstacleLayer).bindTooltip("Manual forbidden zone", {direction:"center"});
   }
   if (manualObstacleDraft.length) {
     L.polyline(manualObstacleDraft, {color: "#b65d13", weight: 3, dashArray: "4,4"}).addTo(manualObstacleLayer);
@@ -1597,14 +1652,17 @@ function drawManualObstacles() {
       L.marker(p, {icon}).addTo(manualObstacleLayer);
     });
   }
+  updateLegend();
 }
 function startManualObstacleDraw() {
+  if (manualObstacleDrawMode) cancelManualObstacleDraw();
   if (appMode !== "mission") setMode("mission");
   manualObstacleDrawMode = true;
   manualObstacleDraft = [];
+  manualObstacleEditSnapshot = null;
   map.getContainer().style.cursor = "crosshair";
   setDrawer(false);
-  setStatus("Draw the building/obstacle boundary, then press Close zone.", "warn");
+  setStatus("Drawing mode enabled. Click the map to outline a forbidden zone.", "info");
   updateManualObstacleStatus();
   drawManualObstacles();
 }
@@ -1617,445 +1675,81 @@ function finishManualObstacleDraw() {
   const ring = [...manualObstacleDraft];
   const first = ring[0], last = ring[ring.length - 1];
   if (Math.abs(first[0] - last[0]) > 1e-12 || Math.abs(first[1] - last[1]) > 1e-12) ring.push(first);
-  manualObstacles.push(manualObstacleToBuilding({id: `manual_${Date.now()}`, ring}));
+  const editing = manualObstacleEditSnapshot;
+  const zone = manualObstacleToBuilding({id: editing?.obstacle?.id || `manual_${Date.now()}`, ring});
+  if (editing) manualObstacles.splice(Math.min(editing.index, manualObstacles.length), 0, zone);
+  else manualObstacles.push(zone);
   manualObstacleDraft = [];
   manualObstacleDrawMode = false;
+  manualObstacleEditSnapshot = null;
   map.getContainer().style.cursor = "";
   saveManualObstacles();
   drawManualObstacles();
   updateManualObstacleStatus();
-  setStatus("Manual building/obstacle zone saved. Press Generate to use it in the route.", "ok");
-  if (appMode === "mission") scheduleGenerate("Manual building/obstacle zone added.", 500);
+  setStatus(`Forbidden zone ${editing ? "updated" : "saved"}. Press Generate to use it in the route.`, "ok");
+  if (appMode === "mission") scheduleGenerate(`Forbidden zone ${editing ? "updated" : "added"}.`, 500);
 }
 function cancelManualObstacleDraw() {
+  const editing = manualObstacleEditSnapshot;
+  if (editing) manualObstacles.splice(Math.min(editing.index, manualObstacles.length), 0, editing.obstacle);
   manualObstacleDrawMode = false;
   manualObstacleDraft = [];
+  manualObstacleEditSnapshot = null;
   map.getContainer().style.cursor = "";
+  if (editing) saveManualObstacles();
   drawManualObstacles();
   updateManualObstacleStatus();
-  setStatus("Zone drawing cancelled.");
+  setStatus(editing ? "Zone edit cancelled." : "Zone drawing cancelled.", "info");
 }
 function clearManualObstacles() {
   manualObstacles = [];
   manualObstacleDraft = [];
   manualObstacleDrawMode = false;
+  manualObstacleEditSnapshot = null;
   map.getContainer().style.cursor = "";
   saveManualObstacles();
   drawManualObstacles();
   updateManualObstacleStatus();
-  setStatus("Manual building/obstacle zones cleared.", "warn");
-  if (appMode === "mission") scheduleGenerate("Manual building/obstacle zones cleared.", 500);
+  setStatus("Forbidden zones cleared.", "warn");
+  if (appMode === "mission") scheduleGenerate("Forbidden zones cleared.", 500);
+}
+function deleteManualObstacle(index) {
+  if (index < 0 || index >= manualObstacles.length) return;
+  manualObstacles.splice(index, 1);
+  saveManualObstacles();
+  drawManualObstacles();
+  updateManualObstacleStatus();
+  setStatus("Forbidden zone deleted.", "ok");
+  if (appMode === "mission") scheduleGenerate("Forbidden zone deleted.", 500);
+}
+function editManualObstacle(index) {
+  if (index < 0 || index >= manualObstacles.length) return;
+  if (manualObstacleDrawMode) cancelManualObstacleDraw();
+  if (appMode !== "mission") setMode("mission");
+  const obstacle = manualObstacles.splice(index, 1)[0];
+  const ring = (obstacle.ring || []).map(p => [p[0], p[1]]);
+  const first = ring[0], last = ring[ring.length - 1];
+  if (first && last && Math.abs(first[0] - last[0]) < 1e-12 && Math.abs(first[1] - last[1]) < 1e-12) ring.pop();
+  manualObstacleEditSnapshot = {index, obstacle};
+  manualObstacleDraft = ring;
+  manualObstacleDrawMode = true;
+  map.getContainer().style.cursor = "crosshair";
+  saveManualObstacles();
+  drawManualObstacles();
+  updateManualObstacleStatus();
+  setDrawer(false);
+  setStatus("Editing forbidden zone. Add points on the map, then finish or cancel.", "info");
 }
 function onManualObstacleMapClick(latlng) {
   manualObstacleDraft.push([latlng.lat, latlng.lng]);
   drawManualObstacles();
   updateManualObstacleStatus();
-  setStatus(`Zone draft: ${manualObstacleDraft.length} point(s). Press Close zone when done.`, "warn");
+  setStatus(`Zone draft: ${manualObstacleDraft.length} point(s). Press Finish drawing when done.`, "info");
 }
 function manualObstaclesForBbox(bbox) {
   return manualObstacles.filter(o => bboxOverlap(o.bbox || routeBBox(o.ring), bbox));
 }
 
-const BUILDING_CACHE_PREFIX = "geozigzag_buildings_tile_v1:";
-const LOCAL_BUILDING_CACHE_DIR = "osm_buildings_cache"; // carpeta creada por osm_buildings_preload.py
-const BUILDING_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const BUILDING_TILE_DEG = 0.0012; // aprox. 130 m N-S y 90-100 m E-O en León; reduce payload por consulta.
-const BUILDING_PREFETCH_MAX_TILES = 90;
-let buildingMemoryCache = new Map();
-
-function buildingTileKey(x, y) { return `${x}:${y}`; }
-function buildingTileStorageKey(key) { return BUILDING_CACHE_PREFIX + key; }
-function buildingTileFromIndex(x, y) {
-  return {
-    key: buildingTileKey(x, y),
-    bbox: {
-      west: x * BUILDING_TILE_DEG,
-      east: (x + 1) * BUILDING_TILE_DEG,
-      south: y * BUILDING_TILE_DEG,
-      north: (y + 1) * BUILDING_TILE_DEG,
-    }
-  };
-}
-function tilesForBbox(bbox) {
-  const west = Math.floor(bbox.west / BUILDING_TILE_DEG);
-  const east = Math.floor(bbox.east / BUILDING_TILE_DEG);
-  const south = Math.floor(bbox.south / BUILDING_TILE_DEG);
-  const north = Math.floor(bbox.north / BUILDING_TILE_DEG);
-  const tiles = [];
-  for (let y = south; y <= north; y++) {
-    for (let x = west; x <= east; x++) tiles.push(buildingTileFromIndex(x, y));
-  }
-  return tiles;
-}
-function normalizeCachedBuildings(buildings) {
-  return (buildings || [])
-    .filter(b => b && Array.isArray(b.ring) && b.ring.length >= 4)
-    .map(b => ({id: b.id || `cached_${Math.random().toString(36).slice(2)}`, ring: b.ring, bbox: b.bbox || routeBBox(b.ring)}));
-}
-function readBuildingTileFromCache(tileKey) {
-  if (buildingMemoryCache.has(tileKey)) return buildingMemoryCache.get(tileKey);
-  try {
-    const raw = localStorage.getItem(buildingTileStorageKey(tileKey));
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!parsed || !parsed.savedAt || Date.now() - parsed.savedAt > BUILDING_CACHE_TTL_MS) {
-      localStorage.removeItem(buildingTileStorageKey(tileKey));
-      return null;
-    }
-    const buildings = normalizeCachedBuildings(parsed.buildings || []);
-    buildingMemoryCache.set(tileKey, buildings);
-    return buildings;
-  } catch (_) {
-    return null;
-  }
-}
-function buildingTileDiskFile(tileKey) {
-  return `${LOCAL_BUILDING_CACHE_DIR}/tile_${String(tileKey).replace(":", "_")}.json`;
-}
-async function readBuildingTileFromDisk(tile) {
-  // Lee la caché generada por osm_buildings_preload.py desde disco local.
-  // Importante: hay que abrir el HTML desde un servidor local, no con file://.
-  try {
-    const response = await fetch(buildingTileDiskFile(tile.key), {cache: "force-cache"});
-    if (!response.ok) return null;
-    const parsed = await response.json();
-    const buildings = normalizeCachedBuildings(parsed.buildings || []).filter(b => bboxOverlap(b.bbox, tile.bbox));
-    // Guardamos también en localStorage para acelerar futuras lecturas dentro del navegador.
-    writeBuildingTileToCache(tile.key, buildings);
-    return buildings;
-  } catch (_) {
-    return null;
-  }
-}
-function pruneOldBuildingCache(maxEntries = 220) {
-  try {
-    const entries = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (!key || !key.startsWith(BUILDING_CACHE_PREFIX)) continue;
-      let savedAt = 0;
-      try { savedAt = JSON.parse(localStorage.getItem(key) || "{}").savedAt || 0; } catch (_) {}
-      entries.push({key, savedAt});
-    }
-    entries.sort((a, b) => a.savedAt - b.savedAt);
-    while (entries.length > maxEntries) localStorage.removeItem(entries.shift().key);
-  } catch (_) {}
-}
-function writeBuildingTileToCache(tileKey, buildings) {
-  const clean = normalizeCachedBuildings(buildings);
-  buildingMemoryCache.set(tileKey, clean);
-  try {
-    localStorage.setItem(buildingTileStorageKey(tileKey), JSON.stringify({savedAt: Date.now(), buildings: clean}));
-  } catch (_) {
-    pruneOldBuildingCache(120);
-    try { localStorage.setItem(buildingTileStorageKey(tileKey), JSON.stringify({savedAt: Date.now(), buildings: clean})); } catch (__) {}
-  }
-}
-function clearBuildingCache() {
-  buildingMemoryCache.clear();
-  try {
-    const keys = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && key.startsWith(BUILDING_CACHE_PREFIX)) keys.push(key);
-    }
-    keys.forEach(key => localStorage.removeItem(key));
-  } catch (_) {}
-  updateBuildingCacheStatus();
-}
-function buildingCacheStats() {
-  let tiles = 0;
-  let buildings = 0;
-  try {
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (!key || !key.startsWith(BUILDING_CACHE_PREFIX)) continue;
-      tiles += 1;
-      try { buildings += normalizeCachedBuildings(JSON.parse(localStorage.getItem(key) || "{}").buildings || []).length; } catch (_) {}
-    }
-  } catch (_) {}
-  // Incluye memoria si localStorage no está disponible o acaba de guardarse.
-  if (!tiles && buildingMemoryCache.size) {
-    tiles = buildingMemoryCache.size;
-    for (const b of buildingMemoryCache.values()) buildings += b.length;
-  }
-  return {tiles, buildings};
-}
-function updateBuildingCacheStatus(extra = "") {
-  const el = $("buildingCacheStatus");
-  if (!el) return;
-  const stats = buildingCacheStats();
-  el.textContent = `${stats.tiles} tiles · ${stats.buildings} buildings${extra ? " · " + extra : ""}`;
-}
-async function fetchBuildingsTile(tile, label = "") {
-  const endpoints = [
-    "https://overpass.kumi.systems/api/interpreter",
-    "https://overpass-api.de/api/interpreter",
-    "https://z.overpass-api.de/api/interpreter"
-  ];
-  const errors = [];
-  for (const endpoint of endpoints) {
-    try {
-      const data = await fetchOverpassJson(endpoint, overpassBuildingsQuery(tile.bbox), 18000, `Overpass OSM buildings${label ? " " + label : ""}`);
-      const buildings = parseOverpassBuildings(data).filter(b => bboxOverlap(b.bbox, tile.bbox));
-      writeBuildingTileToCache(tile.key, buildings);
-      return buildings;
-    } catch (err) {
-      errors.push(`${endpoint.replace(/^https?:\/\//, "")}: ${err?.message || err}`);
-    }
-  }
-  throw new Error(errors.slice(-3).join(" | "));
-}
-async function fetchBuildingsForBboxCached(bbox, options = {}) {
-  const tiles = tilesForBbox(bbox);
-  if (options.maxTiles && tiles.length > options.maxTiles) {
-    throw new Error(`This area requires ${tiles.length} building tiles. Zoom in or reduce the route so only the needed area is downloaded.`);
-  }
-  const all = [];
-  const browserMissing = [];
-  for (const tile of tiles) {
-    const cached = readBuildingTileFromCache(tile.key);
-    if (cached !== null) all.push(...cached);
-    else browserMissing.push(tile);
-  }
-
-  const missing = [];
-  if (browserMissing.length) {
-    await loadingStep(`Checking local building cache: ${browserMissing.length}/${tiles.length} tiles…`);
-    for (let i = 0; i < browserMissing.length; i++) {
-      const tile = browserMissing[i];
-      const diskBuildings = await readBuildingTileFromDisk(tile);
-      if (diskBuildings !== null) all.push(...diskBuildings);
-      else missing.push(tile);
-      if (i % 8 === 0) await nextPaint();
-    }
-  }
-
-  if (missing.length) {
-    await loadingStep(`Downloading OSM buildings: ${missing.length}/${tiles.length} missing tiles…`);
-  } else {
-    await loadingStep(`Using local OSM building cache (${tiles.length} tiles)…`);
-  }
-  for (let i = 0; i < missing.length; i++) {
-    const tile = missing[i];
-    await loadingStep(`Downloading OSM building tile ${i + 1}/${missing.length}…`);
-    const buildings = await fetchBuildingsTile(tile, `tile ${i + 1}/${missing.length}`);
-    all.push(...buildings);
-    updateBuildingCacheStatus(`downloading ${i + 1}/${missing.length}`);
-    await nextPaint();
-  }
-  updateBuildingCacheStatus();
-  return uniqueBuildings(all).filter(b => bboxOverlap(b.bbox, bbox));
-}
-function missionRoutePlanningBbox() {
-  const pts = [];
-  for (const id of missionStops) {
-    try { pts.push(poiById(id)); } catch (_) {}
-  }
-  if (pts.length < 2) return null;
-  const maxSnap = Math.max(1, safeNum("osmMaxSnap", 50));
-  const buffer = Math.max(0, safeNum("osmBuildingBuffer", 2));
-  return expandBBoxMeters(routeBBox(pts), Math.max(45, maxSnap + buffer + 20));
-}
-function currentMapBboxForBuildings() {
-  const b = map.getBounds();
-  return {south: b.getSouth(), west: b.getWest(), north: b.getNorth(), east: b.getEast()};
-}
-async function preloadBuildingsForBbox(bbox, label) {
-  const tiles = tilesForBbox(bbox);
-  if (tiles.length > BUILDING_PREFETCH_MAX_TILES) {
-    throw new Error(`${label} is too large (${tiles.length} tiles). Zoom in or select a smaller area.`);
-  }
-  const started = performance.now();
-  generationToken += 1;
-  setGenerateBusy(true);
-  setLoadingVisible(true, `Preloading OSM buildings for ${label}…`);
-  try {
-    await loadingStep(`Preloading OSM buildings for ${label} (${tiles.length} tiles)…`);
-    const buildings = await fetchBuildingsForBboxCached(bbox, {maxTiles: BUILDING_PREFETCH_MAX_TILES});
-    drawBuildings(buildings);
-    const elapsed = performance.now() - started;
-    setRunState("ok", "Buildings preloaded", `${buildings.length} buildings · ${formatElapsed(elapsed)}`);
-    setStatus(`Buildings preloaded for ${label}: ${buildings.length} buildings · ${formatElapsed(elapsed)}.`, "ok");
-  } catch (err) {
-    const elapsed = performance.now() - started;
-    setRunState("err", "Building preload failed", formatElapsed(elapsed));
-    setStatus(`Building preload failed: ${err.message || err}`, "err");
-  } finally {
-    setGenerateBusy(false);
-    setLoadingVisible(false);
-    updateBuildingCacheStatus();
-  }
-}
-function overpassBuildingsQuery(bbox) {
-  // out geom avoids a second node pass and also retrieves multipolygon/relation
-  // buildings, which can be incomplete or slower with `out body; >; out skel`.
-  return `[out:json][timeout:25];\n(\n  way["building"](${bbox.south},${bbox.west},${bbox.north},${bbox.east});\n  relation["building"](${bbox.south},${bbox.west},${bbox.north},${bbox.east});\n);\nout geom;`;
-}
-function bboxSizeMeters(bbox) {
-  const midLat = (bbox.south + bbox.north) / 2;
-  const height = Math.max(0, (bbox.north - bbox.south) * 111320);
-  const width = Math.max(0, (bbox.east - bbox.west) * 111320 * Math.max(0.2, Math.cos(midLat * Math.PI / 180)));
-  return {width, height, area: width * height};
-}
-function splitBBox(bbox, parts = 2) {
-  const tiles = [];
-  for (let y = 0; y < parts; y++) {
-    for (let x = 0; x < parts; x++) {
-      tiles.push({
-        south: bbox.south + (bbox.north - bbox.south) * y / parts,
-        north: bbox.south + (bbox.north - bbox.south) * (y + 1) / parts,
-        west: bbox.west + (bbox.east - bbox.west) * x / parts,
-        east: bbox.west + (bbox.east - bbox.west) * (x + 1) / parts,
-      });
-    }
-  }
-  return tiles;
-}
-async function fetchOverpassJson(endpoint, query, timeoutMs, label) {
-  const response = await fetchWithTimeout(endpoint, {
-    method: "POST",
-    headers: {"Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"},
-    body: "data=" + encodeURIComponent(query)
-  }, timeoutMs, label);
-  if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    throw new Error(`Overpass HTTP ${response.status}${body ? `: ${body.slice(0, 120)}` : ""}`);
-  }
-  return response.json();
-}
-async function fetchBuildingsForBbox(bbox) {
-    // Download only the needed area, split into reusable cache tiles.
-    // The first pass uses Overpass; later passes reuse localStorage/memory.
-  try {
-    return await fetchBuildingsForBboxCached(bbox, {maxTiles: 140});
-  } catch (cacheErr) {
-    // Legacy fallback: if tiled caching fails for any reason, keep the previous
-    // strict behavior with a complete/split bbox request.
-    const endpoints = [
-      "https://overpass.kumi.systems/api/interpreter",
-      "https://overpass-api.de/api/interpreter",
-      "https://z.overpass-api.de/api/interpreter"
-    ];
-    const size = bboxSizeMeters(bbox);
-    const shouldTile = size.width > 260 || size.height > 260 || size.area > 65000;
-    const attempts = shouldTile
-      ? [{name: "split bbox 2x2", boxes: splitBBox(bbox, 2), timeout: 16000}, {name: "full bbox", boxes: [bbox], timeout: 22000}]
-      : [{name: "full bbox", boxes: [bbox], timeout: 18000}, {name: "split bbox 2x2", boxes: splitBBox(bbox, 2), timeout: 14000}];
-
-    const errors = [cacheErr?.message || String(cacheErr)];
-    for (const attempt of attempts) {
-      for (const endpoint of endpoints) {
-        try {
-          const collected = [];
-          for (let i = 0; i < attempt.boxes.length; i++) {
-            const tile = attempt.boxes[i];
-            const tileLabel = attempt.boxes.length > 1 ? ` tile ${i + 1}/${attempt.boxes.length}` : "";
-            await loadingStep(`Downloading OSM buildings (${attempt.name}${tileLabel})…`);
-            const data = await fetchOverpassJson(endpoint, overpassBuildingsQuery(tile), attempt.timeout, `Overpass OSM buildings ${attempt.name}${tileLabel}`);
-            collected.push(...parseOverpassBuildings(data));
-          }
-          const buildings = uniqueBuildings(collected);
-          updateBuildingCacheStatus();
-          return buildings;
-        } catch (error) {
-          errors.push(`${endpoint.replace(/^https?:\/\//, "")}: ${error?.message || error}`);
-        }
-      }
-    }
-    throw new Error(`OSM buildings could not be downloaded from Overpass or the local cache/tiles. Last detail: ${errors.slice(-4).join(" | ")}`);
-  }
-}
-function closeRingIfNeeded(ring) {
-  const clean = ring.filter(p => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]));
-  if (clean.length < 3) return [];
-  const first = clean[0], last = clean[clean.length - 1];
-  if (Math.abs(first[0] - last[0]) > 1e-10 || Math.abs(first[1] - last[1]) > 1e-10) clean.push([first[0], first[1]]);
-  return clean.length >= 4 ? clean : [];
-}
-function sameLL(a, b, eps = 1e-9) {
-  return Math.abs(a[0] - b[0]) <= eps && Math.abs(a[1] - b[1]) <= eps;
-}
-function joinOuterFragments(fragments) {
-  const remaining = fragments.map(f => f.slice()).filter(f => f.length >= 2);
-  const rings = [];
-  while (remaining.length) {
-    let ring = remaining.shift();
-    let changed = true;
-    while (changed) {
-      changed = false;
-      for (let i = 0; i < remaining.length; i++) {
-        const frag = remaining[i];
-        if (sameLL(ring[ring.length - 1], frag[0])) {
-          ring = ring.concat(frag.slice(1));
-        } else if (sameLL(ring[ring.length - 1], frag[frag.length - 1])) {
-          ring = ring.concat(frag.slice(0, -1).reverse());
-        } else if (sameLL(ring[0], frag[frag.length - 1])) {
-          ring = frag.slice(0, -1).concat(ring);
-        } else if (sameLL(ring[0], frag[0])) {
-          ring = frag.slice(1).reverse().concat(ring);
-        } else {
-          continue;
-        }
-        remaining.splice(i, 1);
-        changed = true;
-        break;
-      }
-    }
-    rings.push(closeRingIfNeeded(ring));
-  }
-  return rings.filter(r => r.length >= 4);
-}
-function geometryToRing(geometry) {
-  if (!Array.isArray(geometry)) return [];
-  return closeRingIfNeeded(geometry.map(p => [p.lat, p.lon]));
-}
-function parseOverpassBuildings(data) {
-  const nodes = new Map();
-  for (const el of data.elements || []) {
-    if (el.type === "node" && Number.isFinite(el.lat) && Number.isFinite(el.lon)) nodes.set(el.id, [el.lat, el.lon]);
-  }
-  const buildings = [];
-  const seen = new Set();
-  function addBuilding(id, ring) {
-    if (!ring || ring.length < 4) return;
-    const key = String(id) + ":" + ring.slice(0, 4).map(p => `${p[0].toFixed(7)},${p[1].toFixed(7)}`).join("|");
-    if (seen.has(key)) return;
-    buildings.push({id: key, ring, bbox: routeBBox(ring)});
-    seen.add(key);
-  }
-  for (const el of data.elements || []) {
-    if (el.type === "way" && el.tags && el.tags.building) {
-      let ring = geometryToRing(el.geometry);
-      if (!ring.length && Array.isArray(el.nodes)) ring = closeRingIfNeeded(el.nodes.map(id => nodes.get(id)).filter(Boolean));
-      addBuilding(`way/${el.id}`, ring);
-    }
-  }
-  for (const el of data.elements || []) {
-    if (el.type === "relation" && el.tags && el.tags.building && Array.isArray(el.members)) {
-      const outers = el.members
-        .filter(m => (!m.role || m.role === "outer") && Array.isArray(m.geometry))
-        .map(m => m.geometry.map(p => [p.lat, p.lon]).filter(p => Number.isFinite(p[0]) && Number.isFinite(p[1])))
-        .filter(g => g.length >= 2);
-      for (const ring of joinOuterFragments(outers)) addBuilding(`relation/${el.id}`, ring);
-    }
-  }
-  return buildings;
-}
-
-function drawBuildings(buildings) {
-  buildingLayer.clearLayers();
-  for (const building of buildings) {
-    L.polygon(building.ring, {
-      color: "#b42318",
-      weight: 1,
-      opacity: 0.8,
-      fillColor: "#b42318",
-      fillOpacity: 0.16,
-      interactive: false
-    }).addTo(buildingLayer);
-  }
-}
 function uniqueBuildings(buildings) {
   const seen = new Set();
   const out = [];
@@ -2225,9 +1919,9 @@ function localAstarAroundBuildings(start, end, buildings, bufferM, preferredReso
   }
   const sCell = nearestFreeCell(grid, llToCell(start));
   const gCell = nearestFreeCell(grid, llToCell(end));
-  if (!sCell || !gCell) throw new Error("The start or destination is inside an OSM building or too close to it.");
+  if (!sCell || !gCell) throw new Error("The start or destination is inside a forbidden zone or too close to it.");
   const path = astarGrid(grid, sCell, gCell);
-  if (!path.length) throw new Error("No local A* fallback avoiding buildings was found.");
+  if (!path.length) throw new Error("No local A* fallback avoiding forbidden zones was found.");
   return path.map(([r, c]) => {
     const xy = cellCenter(r, c);
     return xyToLL(xy[0], xy[1], origin);
@@ -2246,9 +1940,8 @@ async function generateOsmRoute(ids, interval) {
   let unsafeFallback = safeVal("osmUnsafeFallback", "warn") !== "block";
   let validationMode = safeVal("osmValidationMode", "soft") || "soft";
 
-  // Presets override hidden values. Quick mode never activates Overpass,
-  // alternatives, building validation, or A* even if a hidden selector kept an
-  // older value.
+  // Presets override hidden values. Quick mode never activates forbidden-zone
+  // validation or local A* even if a hidden selector kept an older value.
   if (preset === "quick") {
     endpointMode = "snap";
     userAvoidBuildings = false;
@@ -2257,8 +1950,8 @@ async function generateOsmRoute(ids, interval) {
     unsafeFallback = true;
     validationMode = "soft";
   } else if (preset === "balanced") {
-    // Balanced mode keeps exact endpoints and building checks, but leaves OSRM
-    // alternatives off by default so the UI stays responsive.
+    // Balanced mode keeps exact endpoints and manual forbidden-zone checks, but
+    // leaves OSRM alternatives off by default so the UI stays responsive.
     endpointMode = endpointMode || "exact_avoid";
     unsafeFallback = true;
     validationMode = validationMode || "soft";
@@ -2276,12 +1969,9 @@ async function generateOsmRoute(ids, interval) {
   const targets = ids.map(poiById);
   const fullRoute = [];
   const snapWarnings = [];
-  const allBuildings = [];
+  const allForbiddenZones = [];
   let alternativesUsed = 0;
   let astarFallbacks = 0;
-  let buildingChecks = 0;
-
-  buildingLayer.clearLayers();
 
   for (let i = 0; i < targets.length - 1; i++) {
     const start = targets[i];
@@ -2304,7 +1994,7 @@ async function generateOsmRoute(ids, interval) {
       if (endpointMode === "snap" && !unsafeFallback) throw new Error(msg);
       snapWarnings.push(unsafeFallback ? `${msg} The route continues only for preview, using the OSRM-snapped point.` : msg);
     } else if (worstSnap > 8) {
-      snapWarnings.push(`Snap OSM ${ids[i]} → ${ids[i + 1]}: hasta ${worstSnap.toFixed(1)} m.`);
+      snapWarnings.push(`OSM snapped ${ids[i]} → ${ids[i + 1]} by up to ${worstSnap.toFixed(1)} m.`);
     }
 
     const candidateRoutes = data.routes.map((route, idx) => ({
@@ -2324,24 +2014,13 @@ async function generateOsmRoute(ids, interval) {
     if (avoidBuildings) {
       const allCandidatePoints = candidateRoutes.flatMap(candidate => candidate.points);
       const bbox = expandBBoxMeters(routeBBox([start, end, ...allCandidatePoints]), Math.max(30, maxSnap + buildingBuffer + 10));
-      await loadingStep(`Checking OSM buildings for ${ids[i]} → ${ids[i + 1]}…`);
-      try {
-        segmentBuildings = await fetchBuildingsForBbox(bbox);
-      } catch (err) {
-        if (!unsafeFallback) throw err;
-        snapWarnings.push(`OSM buildings could not be downloaded for ${ids[i]} → ${ids[i + 1]} (${err.message || err}). The route continues using manual forbidden zones only, if any exist.`);
-        segmentBuildings = [];
-      }
-      const manualForSegment = manualObstaclesForBbox(bbox);
-      if (manualForSegment.length) {
-        segmentBuildings = uniqueBuildings([...segmentBuildings, ...manualForSegment]);
-        snapWarnings.push(`${manualForSegment.length} manual forbidden zone(s) applied in ${ids[i]} → ${ids[i + 1]}.`);
-      }
+      await loadingStep(`Checking manual forbidden zones for ${ids[i]} → ${ids[i + 1]}…`);
+      segmentBuildings = manualObstaclesForBbox(bbox);
+      if (segmentBuildings.length) snapWarnings.push(`${segmentBuildings.length} manual forbidden zone(s) applied in ${ids[i]} → ${ids[i + 1]}.`);
       if (!segmentBuildings.length && !unsafeFallback) {
-        throw new Error(`No OSM buildings or manual forbidden zones are available for ${ids[i]} → ${ids[i + 1]}. In strict mode, the tool cannot guarantee that the route avoids satellite-visible buildings. Draw a manual forbidden zone around the building and generate again.`);
+        throw new Error(`No manual forbidden zones are available for ${ids[i]} → ${ids[i + 1]}. Draw a zone around the obstacle or change the unsafe route policy.`);
       }
-      allBuildings.push(...segmentBuildings);
-      buildingChecks += segmentBuildings.length;
+      allForbiddenZones.push(...segmentBuildings);
 
       await loadingStep(`${useAlternatives ? "Checking alternatives" : "Checking route"} against obstacles for ${ids[i]} → ${ids[i + 1]}…`);
       selected = null;
@@ -2358,10 +2037,10 @@ async function generateOsmRoute(ids, interval) {
       if (!selected) {
         const shortest = candidateRoutes[0];
         if (!useAstarFallback) {
-          if (!unsafeFallback) throw new Error(`All OSRM alternatives for ${ids[i]} → ${ids[i + 1]} cross or touch OSM buildings (${selectedHits.length} building(s)). Enable local fallback or move the waypoints.`);
+          if (!unsafeFallback) throw new Error(`All OSRM alternatives for ${ids[i]} → ${ids[i + 1]} cross or touch forbidden zones (${selectedHits.length} zone(s)). Enable local fallback or move the waypoints.`);
           selected = shortest;
           selected.unsafe = true;
-          snapWarnings.push(`All OSRM alternatives for ${ids[i]} → ${ids[i + 1]} touch OSM buildings (${selectedHits.length} building(s)). The best OSM route is shown with a warning.`);
+          snapWarnings.push(`All OSRM alternatives for ${ids[i]} → ${ids[i + 1]} touch forbidden zones (${selectedHits.length} zone(s)). The best OSM route is shown with a warning.`);
         } else {
           const astarStart = endpointMode === "snap" && shortest.points.length ? shortest.points[0] : start;
           const astarEnd = endpointMode === "snap" && shortest.points.length ? shortest.points[shortest.points.length - 1] : end;
@@ -2370,7 +2049,7 @@ async function generateOsmRoute(ids, interval) {
             const fallbackPoints = localAstarAroundBuildings(astarStart, astarEnd, segmentBuildings, effectiveBuildingBuffer, Math.max(2, interval / 2));
             selected = {idx: -1, distance: distancePoints(fallbackPoints), points: fallbackPoints};
             astarFallbacks += 1;
-            snapWarnings.push(`Local A* fallback used in ${ids[i]} → ${ids[i + 1]} because OSRM crossed buildings.`);
+            snapWarnings.push(`Local A* fallback used in ${ids[i]} → ${ids[i + 1]} because OSRM crossed a forbidden zone.`);
           } catch (err) {
             if (!unsafeFallback) throw err;
             selected = shortest;
@@ -2387,18 +2066,17 @@ async function generateOsmRoute(ids, interval) {
     appendRoutePoints(fullRoute, connectedSegment);
   }
 
-  const finalBuildings = uniqueBuildings(allBuildings);
-  if (avoidBuildings) drawBuildings(finalBuildings);
+  const finalZones = uniqueBuildings(allForbiddenZones);
 
   const details = [];
-  if (avoidBuildings) details.push(`${finalBuildings.length} building/forbidden zone(s) checked`);
+  if (avoidBuildings) details.push(`${finalZones.length} manual forbidden zone(s) checked`);
   if (alternativesUsed) details.push(`${alternativesUsed} OSRM alternative(s) used`);
   if (astarFallbacks) details.push(`${astarFallbacks} local A* fallback(s)`);
   if (endpointMode === "exact_direct") details.push("exact endpoints with direct bridge");
   if (endpointMode === "exact_avoid") details.push("exact endpoints with validation/local A*");
   if (details.length) snapWarnings.push(details.join("; ") + ".");
 
-  return {points: fullRoute, distance_m: distancePoints(fullRoute), profile, endpointMode, warnings: snapWarnings, buildings: finalBuildings.length, alternativesUsed, astarFallbacks, quickMode: !avoidBuildings};
+  return {points: fullRoute, distance_m: distancePoints(fullRoute), profile, endpointMode, warnings: snapWarnings, zones: finalZones.length, alternativesUsed, astarFallbacks, quickMode: !avoidBuildings};
 }
 function localCostSegment(a, b, interval, startType, endType) {
   const direct = interpolateRoute([a, b], interval);
@@ -2442,12 +2120,20 @@ async function generateMissionRoute() {
     const points = interpolateRoute(missionStops.map(poiById), interval);
     result = {points, distance_m: distancePoints(points)};
   }
-  const extra = result.warnings && result.warnings.length ? ` Aviso: ${result.warnings.join(" ")}` : "";
-  const quickInfo = strategy === "osm" && result.quickMode ? " Modo rápido: sin validación building=* ni A* local." : "";
   const modeText = strategy === "osm"
-    ? (result.endpointMode === "exact_avoid" ? "osm exacto+A*" : result.endpointMode === "exact_direct" ? "osm exacto-directo" : "osm snap")
+    ? (result.endpointMode === "exact_avoid" ? "osm exact + A*" : result.endpointMode === "exact_direct" ? "osm exact-direct" : "osm snap")
     : strategy;
-  return {waypoints: toWaypoints(result.points), rows: modeText, strategy, message: `Mission route generated with ${modeText}.${quickInfo}${extra}`};
+  const details = [`Mission route generated with ${modeText}.`];
+  if (strategy === "osm" && result.quickMode) details.push("Fast OSM mode: snapped endpoints, no forbidden-zone validation.");
+  if (result.warnings && result.warnings.length) details.push(...result.warnings);
+  const warningLines = (result.warnings || []).filter(line => !/manual forbidden zone\(s\) applied|manual forbidden zone\(s\) checked|exact endpoints/i.test(line));
+  const hasWarnings = warningLines.length > 0;
+  const summary = hasWarnings
+    ? "Route generated with warnings. Some waypoints were snapped or fallback routing was used. Open route details for more information."
+    : result.zones
+      ? `Route generated successfully while avoiding ${result.zones} manual forbidden zone${result.zones === 1 ? "" : "s"}.`
+      : "Route generated successfully.";
+  return {waypoints: toWaypoints(result.points), rows: modeText, strategy, message: summary, details, statusClass: hasWarnings ? "warn" : "ok", detailTitle: "Route details"};
 }
 function landColor(type) {
   return {pastizal:"#3a7d44", arbustivo:"#b65d13", matorral:"#734a9d", water:"#2f80ed", custom:"#17202a"}[type] || "#555";
@@ -2578,7 +2264,7 @@ function renderEmptyMission(message) {
   renderMissionMarkers();
   currentBounds = L.latLngBounds(poiGeojson.features.map(f => [f.geometry.coordinates[1], f.geometry.coordinates[0]]));
   updateStats(0, 0, "Mode", "-");
-  if (/cleared|add at least|añade|al menos/i.test(message)) {
+  if (/cleared|add at least/i.test(message)) {
     markDirty(message, false);
   } else {
     failGenerationState(message);
@@ -2616,10 +2302,12 @@ function renderResult(result) {
   const d = result.distance_m || distanceRoute(result.waypoints);
   updateStats(result.waypoints.length, d, appMode === "coverage" ? "Rows" : "Mode", result.rows);
   const message = result.message || `Generated ${result.waypoints.length} waypoints.`;
-  const statusClass = /aviso|warning|unsafe|revisa/i.test(message) ? "warn" : "ok";
+  const statusClass = result.statusClass || (/warning|unsafe|review|snapped|fallback/i.test(message) ? "warn" : "ok");
   setStatus(message, statusClass);
+  setRouteDetails(result.details || [], result.detailTitle || "Route details");
   updateDownloads();
   finishGenerationState({...result, distance_m: d}, statusClass);
+  updateLegend();
 }
 function updateStats(points, distance, label, rows) {
   $("statPoints").textContent = String(points);
@@ -2718,6 +2406,7 @@ function setMode(mode) {
   missionLayer.clearLayers();
   markerLayer.clearLayers();
   fieldLayer.clearLayers();
+  currentWaypoints = [];
   syncBaseView();
   syncMissionDrawer();
   map.off("click", onPolyClick);
@@ -2746,6 +2435,7 @@ function setMode(mode) {
       renderEmptyMission("Add at least two waypoints.");
     }
   }
+  updateLegend();
 }
 function connectRobotGps() {
   const fallback = initCenter();
@@ -2789,12 +2479,12 @@ function currentOsmSettings() {
   const usesCost = strategy === "cost";
   const exactAvoid = endpoint === "exact_avoid";
   const exactDirect = endpoint === "exact_direct";
-  const buildingsNeeded = usesOsm && preset !== "quick" && (avoidBuildings || exactAvoid || preset === "strict");
+  const zonesNeeded = usesOsm && preset !== "quick" && (avoidBuildings || exactAvoid || preset === "strict");
   const advancedNeeded = usesOsm && preset !== "quick";
   const strictMode = usesOsm && preset === "strict";
   const balancedMode = usesOsm && preset === "balanced";
   const quickMode = usesOsm && preset === "quick";
-  return {strategy, preset, endpoint, rawEndpoint, usesOsm, usesCost, exactAvoid, exactDirect, buildingsNeeded, advancedNeeded, strictMode, balancedMode, quickMode};
+  return {strategy, preset, endpoint, rawEndpoint, usesOsm, usesCost, exactAvoid, exactDirect, zonesNeeded, advancedNeeded, strictMode, balancedMode, quickMode};
 }
 function updateVisibleMissionSettings() {
   const s = currentOsmSettings();
@@ -2802,7 +2492,6 @@ function updateVisibleMissionSettings() {
   const osmSafetySection = $("osmSafetySection");
   const obstaclesSection = $("obstaclesSection");
   const mapRoutingPanel = $("mapRoutingPanel");
-  const buildingCacheTools = $("buildingCacheTools");
   const manualObstacleTools = $("manualObstacleTools");
   const advancedPanel = $("osmAdvancedPanel");
   if (mapRoutingPanel) mapRoutingPanel.classList.toggle("hidden", !isMission);
@@ -2812,7 +2501,6 @@ function updateVisibleMissionSettings() {
     if (isMission) obstaclesSection.open = true;
   }
   if (manualObstacleTools) manualObstacleTools.classList.toggle("hidden", !isMission);
-  if (buildingCacheTools) buildingCacheTools.classList.toggle("hidden", !(isMission && s.usesOsm));
   if (advancedPanel) {
     advancedPanel.classList.toggle("hidden", !(isMission && s.advancedNeeded));
     if (s.strictMode) advancedPanel.open = true;
@@ -2826,8 +2514,8 @@ function updateVisibleMissionSettings() {
   setFieldVisible("osmMaxSnap", isMission && s.usesOsm);
   setFieldVisible("osmAvoidBuildings", isMission && s.usesOsm && s.advancedNeeded);
   setFieldVisible("osmAlternatives", isMission && s.usesOsm && s.advancedNeeded);
-  setFieldVisible("osmAstarFallback", isMission && s.usesOsm && s.buildingsNeeded);
-  setFieldVisible("osmBuildingBuffer", isMission && s.usesOsm && s.buildingsNeeded);
+  setFieldVisible("osmAstarFallback", isMission && s.usesOsm && s.zonesNeeded);
+  setFieldVisible("osmBuildingBuffer", isMission && s.usesOsm && s.zonesNeeded);
   setFieldVisible("osmValidationMode", isMission && s.strictMode);
   setFieldVisible("osmUnsafeFallback", isMission && s.usesOsm && s.advancedNeeded);
 
@@ -2840,15 +2528,14 @@ function updateVisibleMissionSettings() {
   const costNote = $("costRouteNote");
   if (costNote) costNote.classList.toggle("hidden", !(isMission && s.usesCost));
 
-  updateBuildingCacheStatus();
   updateManualObstacleStatus();
   const hint = $("osmSafetyHint");
   if (hint) {
     hint.classList.toggle("warn", s.strictMode);
     if (s.quickMode) {
-      hint.textContent = "Fast mode: OSM route only, snapped endpoints, no building checks.";
+      hint.textContent = "Fast mode: OSM route only, snapped endpoints, no zone checks.";
     } else if (s.balancedMode) {
-      hint.textContent = "Balanced mode: exact endpoints, building margin and local A* fallback when needed.";
+      hint.textContent = "Balanced mode: exact endpoints, manual zone margin and local A* fallback when needed.";
     } else if (s.strictMode) {
       hint.textContent = "Strict mode may be slower: full validation, alternatives and blocking on unsafe routes.";
     } else {
@@ -2858,15 +2545,16 @@ function updateVisibleMissionSettings() {
   const obstacleHint = $("obstacleHint");
   if (obstacleHint) {
     if (s.strictMode) {
-      obstacleHint.textContent = "Manual zones are treated as buildings/forbidden areas. Draw them, then press Generate.";
+      obstacleHint.textContent = "Strict mode blocks unsafe routes that cross manual forbidden zones.";
     } else if (s.preset === "balanced") {
-      obstacleHint.textContent = "Manual zones are used with OSM building checks and local A* fallback. Press Generate when ready.";
+      obstacleHint.textContent = "Manual forbidden zones are checked during route generation.";
     } else if (s.usesOsm) {
       obstacleHint.textContent = "Fast mode shows manual zones on the map, but obstacle avoidance is active in Balanced or Strict.";
     } else {
-      obstacleHint.textContent = "Manual zones stay saved here; switch to OSM Balanced or Strict to use them for obstacle avoidance.";
+      obstacleHint.textContent = "Manual zones stay saved here; use OSM Balanced or Strict to validate against them.";
     }
   }
+  updateLegend();
 }
 
 function applyOsmSafetyPreset(triggerGenerate = true) {
@@ -2976,21 +2664,19 @@ function bindEvents() {
     const el = $(id);
     if (el) el.addEventListener("change", () => { updateVisibleMissionSettings(); if (appMode === "mission") scheduleGenerate("OSM safety setting changed."); });
   }
-  if ($("preloadVisibleBuildingsBtn")) $("preloadVisibleBuildingsBtn").addEventListener("click", () => preloadBuildingsForBbox(currentMapBboxForBuildings(), "visible area"));
-  if ($("preloadRouteBuildingsBtn")) $("preloadRouteBuildingsBtn").addEventListener("click", () => {
-    const bbox = missionRoutePlanningBbox();
-    if (!bbox) { setStatus("Add at least two waypoints before preloading the route area.", "err"); return; }
-    preloadBuildingsForBbox(bbox, "route area");
-  });
-  if ($("clearBuildingCacheBtn")) $("clearBuildingCacheBtn").addEventListener("click", () => {
-    clearBuildingCache();
-    buildingLayer.clearLayers();
-    setStatus("Local building cache cleared.", "warn");
-  });
   if ($("drawManualObstacleBtn")) $("drawManualObstacleBtn").addEventListener("click", startManualObstacleDraw);
   if ($("finishManualObstacleBtn")) $("finishManualObstacleBtn").addEventListener("click", finishManualObstacleDraw);
   if ($("cancelManualObstacleBtn")) $("cancelManualObstacleBtn").addEventListener("click", cancelManualObstacleDraw);
   if ($("clearManualObstacleBtn")) $("clearManualObstacleBtn").addEventListener("click", clearManualObstacles);
+  if ($("manualObstacleList")) $("manualObstacleList").addEventListener("click", event => {
+    const deleteButton = event.target.closest("button[data-zone-delete]");
+    if (deleteButton) {
+      deleteManualObstacle(Number(deleteButton.dataset.zoneDelete));
+      return;
+    }
+    const editButton = event.target.closest("button[data-zone-edit]");
+    if (editButton) editManualObstacle(Number(editButton.dataset.zoneEdit));
+  });
   $("reverseMissionBtn").addEventListener("click", reverseMissionStops);
   $("clearMissionBtn").addEventListener("click", clearMissionStops);
   $("drawerToggle").addEventListener("click", () => setDrawer(!drawerOpen));
@@ -3030,6 +2716,7 @@ function init() {
   syncBaseView();
   renderPoiPicker();
   renderMissionList();
+  loadManualObstacles();
   updateSpacingLabels();
   updateRectFromInputs(true);
   syncFurrowControls();
