@@ -33,11 +33,15 @@ followers.
 - GeoJSON mission targets with land-cover labels.
 - Mission route mode follows the GeoRoute Planner visit-order workflow,
   defaults to OpenStreetMap paths/tracks, and keeps available POIs in a
-  collapsible right-side waypoint drawer.
+  centered waypoint modal.
 - Custom mission waypoints can be created by clicking the map, naming the
   point, and assigning a land-cover/type label.
 - Online OpenStreetMap/OSRM path routing, plus direct interpolation and local
   costmap A* fallback routes.
+- Optional local OSM `building=*` cache for Mission route validation, with
+  red building footprints drawn on the map.
+- Manual forbidden-zone polygons for houses or sheds that appear in satellite
+  imagery but are missing from OpenStreetMap.
 - CSV and YAML exports for downstream robot navigation.
 - Dependency-light Python core using only the standard library.
 
@@ -119,8 +123,8 @@ http://127.0.0.1:8000/
 
 The browser UI needs internet access for Leaflet, OpenStreetMap tiles, GPS
 imagery tiles, and OSRM path routing. Coverage mode opens on the GPS imagery
-view by default. Mission route mode opens on the OpenStreetMap view by default
-and can switch to GPS imagery with the top-right view toggle.
+view by default. Mission route mode also opens on the GPS imagery view by
+default and can switch to OpenStreetMap with the top-right view toggle.
 
 Mission routing defaults to `OpenStreetMap paths`, which mirrors the original
 GeoRoute Planner preference for walk/path-style routing. OSM routes are built
@@ -128,12 +132,39 @@ segment by segment and direct connector legs are inserted so the route reaches
 the real POI coordinates instead of stopping only at OSRM's snapped road
 locations.
 
-The `Waypoints` button opens the right-side POI drawer, where targets can be
-added without crowding the route settings panel. In mission mode, click anywhere
-on the map to create a named waypoint with a type/land-cover label. Custom
-waypoints are available immediately in the drawer and can be added to the route
-for the current browser session. If the OSRM service is unavailable, the browser
-falls back to the local costmap route.
+For obstacle-aware Mission route checks, switch `OSM mode` to `Balanced` or
+`Strict`. The UI can download nearby OSM buildings with `Preload visible area`
+or `Preload route area`, caches them in the browser, and draws checked building
+footprints in red on the map. If a building is visible in GPS imagery but
+missing from OSM, use `Manual obstacles` to draw a polygon around it; the local
+A* fallback treats that polygon like a building.
+
+The local file cache is generated under `web/osm_buildings_cache/`. That
+directory is intentionally ignored by Git because it contains downloaded tile
+data. Regenerate or extend it from the repository root with:
+
+```bash
+python3 scripts/osm_buildings_preload.py --poi-ids water_1 arbustivo_2 water_2 --buffer-m 500 --force
+```
+
+To download the cache and serve the app in one command:
+
+```bash
+python3 scripts/osm_buildings_preload.py --poi-ids water_1 arbustivo_2 water_2 --buffer-m 500 --force --serve
+```
+
+Then open the URL printed by the script, normally:
+
+```text
+http://localhost:8000/web/index.html
+```
+
+The `Waypoints` button opens a centered modal, where targets can be viewed,
+reordered, removed, or added without covering the route-generation controls. In
+mission mode, click anywhere on the map to create a named waypoint with a
+type/land-cover label. Custom waypoints are available immediately in the modal
+and can be added to the route for the current browser session. If the OSRM
+service is unavailable, the browser falls back to the local costmap route.
 
 If port `8000` is already in use, choose another port:
 
@@ -146,7 +177,7 @@ Then open `http://127.0.0.1:8001/`.
 To open the mission route view directly:
 
 ```text
-http://127.0.0.1:8000/?mode=mission&strategy=osm
+http://127.0.0.1:8000/?mode=mission&strategy=osm&preset=balanced
 ```
 
 The root redirect preserves query parameters, so both `/` and
@@ -228,10 +259,16 @@ The `curl` response should be `HTTP/1.0 200 OK`. Stop the server with
 For browser smoke testing, open coverage and mission route mode and confirm:
 
 - Coverage starts with the `GPS` view active.
-- Mission route starts with the `Map` view active and `OSM paths` selected.
-- The `Waypoints` button opens the right-side POI drawer.
+- Mission route starts with the `GPS` view active and `OSM paths` selected.
+- Mission route shows the routing mode control on the right side of the map.
+- The route summary and `Generate route` control are grouped at the bottom-right
+  of the map.
+- The `Waypoints` button opens a centered modal instead of a side drawer.
+- In Mission route, `Balanced` or `Strict` exposes the OSM building cache
+  controls and manual forbidden-zone tools.
 - Clicking the map in Mission route mode opens a form for creating a named
   custom waypoint.
+- Routes generated with building validation draw checked OSM buildings in red.
 - Sidebar sections and the legend can be collapsed to keep the map readable.
 
 ## Output Schema
@@ -261,6 +298,8 @@ GeoZigZag/
 |   `-- planning.py
 |-- outputs/
 |   `-- .gitkeep
+|-- scripts/
+|   `-- osm_buildings_preload.py
 |-- web/
 |   `-- index.html
 |-- .gitignore
@@ -277,5 +316,7 @@ Check that the public repository does not include generated route files:
 git status --short --ignored
 ```
 
-Generated files under `outputs/` should appear as ignored files. Source changes
-should be limited to intentional edits.
+Generated files under `outputs/`, downloaded tiles under
+`web/osm_buildings_cache/`, temporary screenshots under `debug_screenshots/`,
+and external reference clones under `external/` should appear as ignored files.
+Source changes should be limited to intentional edits.

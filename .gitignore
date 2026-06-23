@@ -4,7 +4,31 @@ __pycache__/
 *.log
 .pytest_cache/
 .mypy_cache/
+
+# Local/generated outputs
 outputs/*.csv
 outputs/*.yaml
 outputs/*.json
 !outputs/.gitkeep
+
+# Browser/test screenshots and temporary visual artifacts
+debug_screenshots/
+test_screenshots/
+tmp_screenshots/
+playwright-report/
+
+# Downloaded map/building tiles and local browser-side caches
+web/osm_buildings_cache/
+web/**/tile_*.json
+*.mbtiles
+*.tiles
+
+# External reference repositories and local environments
+external/
+georoute-planner/
+venv/
+node_modules/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
