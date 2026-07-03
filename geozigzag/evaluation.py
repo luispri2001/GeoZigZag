@@ -202,7 +202,7 @@ def _write_latex_table(rows: list[dict[str, Any]], output: Path) -> None:
         lines.append(
             f"{scenario} & {strategy} & {row['waypoints']} & {float(row['distance_m']):.1f} & "
             f"{row['turns']} & {row['forbidden_zone_intersections']} & "
-            f"{float(row['computation_time_ms']):.2f} \\\\" 
+            f"{float(row['computation_time_ms']):.2f} \\\\"
         )
     lines.extend(["\\hline", "\\end{tabular}"])
     output.write_text("\n".join(lines) + "\n", encoding="utf-8")

@@ -1,322 +1,151 @@
-# GeoZigZag
+# GeoZigzag Studio
 
-GeoZigZag is a lightweight route-planning tool for agricultural robot missions.
-It joins two practical workflows in one repository:
+GeoZigzag Studio is a reproducible route-preparation workflow for agricultural
+robotics. It combines:
 
-- **Field coverage**: generate back-and-forth zigzag waypoints from field
-  corners on a Leaflet map with GPS imagery and street-map views.
-- **Mission routing**: connect GeoJSON targets over OpenStreetMap/OSRM paths,
-  direct interpolation, or local cost-aware routes.
+- dense boustrophedon coverage inside a selected field; and
+- sparse semantic georouting between ordered geographic targets.
 
-The tool exports latitude, longitude, yaw, and planar quaternion values so the
-same route can be inspected in the browser and reused by ROS-style waypoint
-followers.
+The browser supports map-based editing, explicit route generation, manual
+forbidden zones, direct/local-cost/OSRM routing, visible success and warning
+states, and CSV/YAML export. The Python package provides the deterministic
+implementation used by the tests, benchmark, figures, tables, and paper.
 
-## Screenshots
+## Scope
 
-### Field Coverage
+This repository prepares and validates route files. It does not claim closed-
+loop navigation, Gazebo completion, or physical robot validation. CSV/YAML
+files are ROS-style interchange artifacts; a robot-side consumer must still
+perform coordinate-frame conversion, localization, path tracking, and safety
+checks.
 
-![Field coverage mode](docs/screenshots/coverage.png)
+See [the upstream integration audit](docs/upstream_integration_audit.md) for the
+verified boundary with Geo2Gazebo, Wildboar, and Jabali CropFollow.
 
-### Mission Route
-
-![Mission route mode](docs/screenshots/mission-costmap.png)
-
-## Features
-
-- Static Leaflet web app: open it directly or serve it from a local HTTP
-  server.
-- GPS imagery and OpenStreetMap base-map toggle in both coverage and mission
-  modes.
-- Editable WGS84 field corners, row spacing, waypoint spacing, start corner, and
-  row bearing.
-- GeoJSON mission targets with land-cover labels.
-- Mission route mode follows the GeoRoute Planner visit-order workflow,
-  defaults to OpenStreetMap paths/tracks, and keeps available POIs in a
-  centered waypoint modal.
-- Custom mission waypoints can be created by clicking the map, naming the
-  point, and assigning a land-cover/type label.
-- Online OpenStreetMap/OSRM path routing, plus direct interpolation and local
-  costmap A* fallback routes.
-- Optional local OSM `building=*` cache for Mission route validation, with
-  red building footprints drawn on the map.
-- Manual forbidden-zone polygons for houses or sheds that appear in satellite
-  imagery but are missing from OpenStreetMap.
-- CSV and YAML exports for downstream robot navigation.
-- Dependency-light Python core using only the standard library.
-
-## Current Scope
-
-This repository currently provides the geospatial route-planning part of the
-larger agricultural simulation workflow:
-
-- covered now: map preview, field coverage generation, semantic mission routing
-  with selectable and custom POIs, OSM path routing in the browser, clean
-  collapsible UI panels, CSV/YAML route exports, reproducible CLI demo, and
-  browser-based inspection.
-- not included yet: Geo2Gazebo terrain generation, Gazebo world creation,
-  WILDBOAR/Jabali simulation launch files, or ROS 2 crop-follow navigation
-  launchers.
-
-Use the exported waypoints as the stable interface for the next integration
-layer. Do not treat this repository as a complete ROS/Gazebo launcher until
-those adapters are added.
-
-## Quick Start
-
-### Clone
-
-Clone the repository with SSH:
+## Installation
 
 ```bash
 git clone git@github.com:luispri2001/GeoZigZag.git
 cd GeoZigZag
-```
+git switch sim-integration
 
-Optional but recommended on Linux:
-
-```bash
 python3 -m venv .venv
 source .venv/bin/activate
+python3 -m pip install --upgrade pip
 python3 -m pip install -r requirements.txt
 ```
 
-Optional but recommended on Windows PowerShell:
+Python 3.10 or newer is recommended. The planner uses standard-library
+geometry; PyYAML reads experiment files and Matplotlib generates publication
+figures.
 
-```powershell
-py -3 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-py -3 -m pip install -r requirements.txt
-```
+## Web interface
 
-`requirements.txt` intentionally has no third-party runtime packages. The
-Python planner uses only the standard library. The web UI loads Leaflet,
-OpenStreetMap tiles, GPS imagery tiles, and OSRM path routes from public web
-services, so the browser needs internet access for the online map and
-OSM path-routing mode.
-
-### Web App
-
-Open the file directly:
-
-```text
-web/index.html
-```
-
-Or serve the repository locally:
+Serve the repository:
 
 ```bash
 python3 -m http.server 8000 --bind 127.0.0.1
 ```
 
-On Windows PowerShell:
-
-```powershell
-py -3 -m http.server 8000 --bind 127.0.0.1
-```
-
-Then open:
+Open <http://127.0.0.1:8000/>. Useful direct links are:
 
 ```text
-http://127.0.0.1:8000/
-```
-
-The browser UI needs internet access for Leaflet, OpenStreetMap tiles, GPS
-imagery tiles, and OSRM path routing. Coverage mode opens on the GPS imagery
-view by default. Mission route mode also opens on the GPS imagery view by
-default and can switch to OpenStreetMap with the top-right view toggle.
-
-Mission routing defaults to `OpenStreetMap paths`, which mirrors the original
-GeoRoute Planner preference for walk/path-style routing. OSM routes are built
-segment by segment and direct connector legs are inserted so the route reaches
-the real POI coordinates instead of stopping only at OSRM's snapped road
-locations.
-
-For obstacle-aware Mission route checks, switch `OSM mode` to `Balanced` or
-`Strict`. The UI can download nearby OSM buildings with `Preload visible area`
-or `Preload route area`, caches them in the browser, and draws checked building
-footprints in red on the map. If a building is visible in GPS imagery but
-missing from OSM, use `Manual obstacles` to draw a polygon around it; the local
-A* fallback treats that polygon like a building.
-
-The local file cache is generated under `web/osm_buildings_cache/`. That
-directory is intentionally ignored by Git because it contains downloaded tile
-data. Regenerate or extend it from the repository root with:
-
-```bash
-python3 scripts/osm_buildings_preload.py --poi-ids water_1 arbustivo_2 water_2 --buffer-m 500 --force
-```
-
-To download the cache and serve the app in one command:
-
-```bash
-python3 scripts/osm_buildings_preload.py --poi-ids water_1 arbustivo_2 water_2 --buffer-m 500 --force --serve
-```
-
-Then open the URL printed by the script, normally:
-
-```text
-http://localhost:8000/web/index.html
-```
-
-The `Waypoints` button opens a centered modal, where targets can be viewed,
-reordered, removed, or added without covering the route-generation controls. In
-mission mode, click anywhere on the map to create a named waypoint with a
-type/land-cover label. Custom waypoints are available immediately in the modal
-and can be added to the route for the current browser session. If the OSRM
-service is unavailable, the browser falls back to the local costmap route.
-
-If port `8000` is already in use, choose another port:
-
-```bash
-python3 -m http.server 8001 --bind 127.0.0.1
-```
-
-Then open `http://127.0.0.1:8001/`.
-
-To open the mission route view directly:
-
-```text
+http://127.0.0.1:8000/?mode=coverage
+http://127.0.0.1:8000/?mode=mission&strategy=cost
 http://127.0.0.1:8000/?mode=mission&strategy=osm&preset=balanced
 ```
 
-The root redirect preserves query parameters, so both `/` and
-`/web/index.html` links can be used for direct mode links.
+Map tiles and live OSRM routing need internet access. Direct and local
+cost-aware routing do not. Editing a field, target list, spacing, route mode, or
+forbidden zone marks the existing route as pending and disables stale exports;
+press **Generate route** to create a new result.
 
-### Command-Line Demo
-
-From the repository root:
-
-```bash
-python3 -m geozigzag.cli --out outputs
-```
-
-On Windows PowerShell:
-
-```powershell
-py -m geozigzag.cli --out outputs
-```
-
-The demo reads `data/points.geojson` and writes reproducible route files to
-`outputs/`.
-
-## Output Files
-
-The CLI generates:
-
-- `outputs/coverage_zigzag.csv`
-- `outputs/coverage_zigzag.yaml`
-- `outputs/mission_direct.csv`
-- `outputs/mission_direct.yaml`
-- `outputs/mission_costmap.csv`
-- `outputs/mission_costmap.yaml`
-- `outputs/summary.json`
-
-Generated output files are ignored by Git. The `outputs/.gitkeep` file only
-keeps the folder available in fresh clones.
-
-## Verification
-
-Run the local test suite:
+## Reproduce the paper results
 
 ```bash
-python3 -m unittest discover -s tests -p "test_*.py"
+make reproduce
 ```
 
-Run the CLI smoke test:
-
-```bash
-python3 -m geozigzag.cli --out outputs
-```
-
-The default demo should produce a `summary.json` with these stable values:
-
-```json
-{
-  "coverage": {
-    "coverage_rows": 16,
-    "points": 224
-  },
-  "mission_direct": {
-    "points": 54
-  },
-  "mission_costmap": {
-    "points": 83
-  }
-}
-```
-
-Check that the web app is served:
-
-```bash
-python3 -m http.server 8000 --bind 127.0.0.1
-curl -I http://127.0.0.1:8000/
-```
-
-The `curl` response should be `HTTP/1.0 200 OK`. Stop the server with
-`Ctrl+C` when finished.
-
-For browser smoke testing, open coverage and mission route mode and confirm:
-
-- Coverage starts with the `GPS` view active.
-- Mission route starts with the `GPS` view active and `OSM paths` selected.
-- Mission route shows the routing mode control on the right side of the map.
-- The route summary and `Generate route` control are grouped at the bottom-right
-  of the map.
-- The `Waypoints` button opens a centered modal instead of a side drawer.
-- In Mission route, `Balanced` or `Strict` exposes the OSM building cache
-  controls and manual forbidden-zone tools.
-- Clicking the map in Mission route mode opens a form for creating a named
-  custom waypoint.
-- Routes generated with building validation draw checked OSM buildings in red.
-- Sidebar sections and the legend can be collapsed to keep the map readable.
-
-## Output Schema
-
-CSV exports include:
-
-| Field | Meaning |
-| --- | --- |
-| `latitude` | WGS84 latitude in degrees |
-| `longitude` | WGS84 longitude in degrees |
-| `yaw` | Heading in radians |
-| `qx`, `qy`, `qz`, `qw` | Planar quaternion for ROS-style consumers |
-
-YAML exports use the same route information in a waypoint list.
-
-## Project Structure
+This command runs the offline tests, evaluates the versioned scenarios,
+generates route artifacts and figures, and compiles the IEEE manuscript. Main
+outputs are:
 
 ```text
-GeoZigZag/
-|-- data/
-|   `-- points.geojson
-|-- docs/
-|   `-- screenshots/
-|-- geozigzag/
-|   |-- __init__.py
-|   |-- cli.py
-|   `-- planning.py
-|-- outputs/
-|   `-- .gitkeep
-|-- scripts/
-|   `-- osm_buildings_preload.py
-|-- web/
-|   `-- index.html
-|-- .gitignore
-|-- index.html
-|-- README.md
-`-- requirements.txt
+outputs/evaluation/results.csv
+outputs/evaluation/sensitivity.csv
+outputs/evaluation/summary.json
+outputs/evaluation/paper_results.tex
+outputs/evaluation/figures/*.png
+outputs/evaluation/routes/<scenario>/<strategy>/
+paper/build/main.pdf
 ```
 
-## Development Checks
+The evaluation never calls a live routing service. It uses the OSRM response
+fixture in `data/osrm_fixture.json`, including its retrieval date, source,
+profile, geometry, and snap distances.
 
-Check that the public repository does not include generated route files:
+Run individual stages with:
 
 ```bash
-git status --short --ignored
+make test
+make evaluate
+make paper
+
+python3 -m geozigzag.evaluate \
+  --config configs/evaluation.yaml \
+  --out outputs/evaluation
 ```
 
-Generated files under `outputs/`, downloaded tiles under
-`web/osm_buildings_cache/`, temporary screenshots under `debug_screenshots/`,
-and external reference clones under `external/` should appear as ignored files.
-Source changes should be limited to intentional edits.
+## CLI demo
+
+The original compact demo remains available:
+
+```bash
+python3 -m geozigzag.cli --out outputs/demo
+```
+
+It generates coverage, direct mission, and local cost-aware mission routes.
+
+## Waypoint schema
+
+CSV and YAML routes contain:
+
+| Field | Definition |
+| --- | --- |
+| `latitude`, `longitude` | WGS84 coordinates in degrees |
+| `yaw` | ENU heading in radians, counter-clockwise from east |
+| `qx`, `qy`, `qz`, `qw` | Planar quaternion derived from yaw |
+
+GeoJSON bundles contain one route `LineString` plus indexed waypoint features.
+
+## Package layout
+
+```text
+geozigzag/
+├── geometry.py       # local projection, heading, polygon operations
+├── coverage.py       # rectangle and polygon boustrophedon planners
+├── routing.py        # direct, semantic-cost A*, OSRM adapters
+├── metrics.py        # distance, turns, area, forbidden intersections
+├── export.py         # CSV, YAML, and GeoJSON
+├── evaluation.py     # scenario execution, metrics, figures, tables
+├── evaluate.py       # python -m entry point
+├── planning.py       # compatibility facade
+└── cli.py            # compact legacy demo
+```
+
+Additional documentation:
+
+- [Architecture and coordinate conventions](docs/architecture.md)
+- [Reproducibility protocol](docs/reproducibility.md)
+- [Geo2Gazebo/Wildboar/CropFollow audit](docs/upstream_integration_audit.md)
+
+## Scientific interpretation
+
+The local semantic-cost grid is a controlled planning proxy, not a calibrated
+terrain model. Its point labels influence nearby cells and declared forbidden
+polygons are impassable. Grid paths contain discrete corners and do not enforce
+vehicle footprint, turning radius, headland width, or dynamics. Cached OSRM
+routes are included to measure network detours and snap distance, not to assert
+that mapped roads are safe or reachable by an agricultural robot.
+
+Please cite the paper in `paper/main.tex` when bibliographic details are final.
