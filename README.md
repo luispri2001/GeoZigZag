@@ -39,6 +39,13 @@ Python 3.10 or newer is recommended. The planner uses standard-library
 geometry; PyYAML reads experiment files and Matplotlib generates publication
 figures.
 
+Compiling the manuscript also requires Make, `latexmk`, IEEEtran, TikZ, and the
+usual LaTeX graphics packages. On Ubuntu 22.04/24.04:
+
+```bash
+sudo apt install make latexmk texlive-latex-extra texlive-pictures
+```
+
 ## Web interface
 
 Serve the repository:
