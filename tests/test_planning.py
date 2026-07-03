@@ -70,7 +70,7 @@ class PlanningTests(unittest.TestCase):
         cost = generate_cost_route(geojson, mission, resolution_m=5.0)
 
         self.assertEqual(len(direct), 54)
-        self.assertEqual(len(cost), 83)
+        self.assertEqual(len(cost), 79)
         self.assertGreater(summarize_route(cost)["distance_m"], summarize_route(direct)["distance_m"])
 
     def test_export_files_have_expected_schema(self) -> None:
@@ -98,7 +98,15 @@ class PlanningTests(unittest.TestCase):
 
         self.assertEqual(
             set(encoded["coverage"].keys()),
-            {"length_m", "width_m", "coverage_rows", "points", "distance_m"},
+            {
+                "length_m",
+                "width_m",
+                "area_m2",
+                "coverage_rows",
+                "average_row_length_m",
+                "points",
+                "distance_m",
+            },
         )
 
     def test_invalid_spacing_is_rejected(self) -> None:

@@ -6,10 +6,11 @@ __pycache__/
 .mypy_cache/
 
 # Local/generated outputs
-outputs/*.csv
-outputs/*.yaml
-outputs/*.json
+outputs/**
 !outputs/.gitkeep
+
+# LaTeX build products (the source manuscript remains tracked)
+paper/build/
 
 # Browser/test screenshots and temporary visual artifacts
 debug_screenshots/

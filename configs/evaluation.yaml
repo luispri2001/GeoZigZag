@@ -1,0 +1,85 @@
+schema_version: 1
+seed: 20260703
+repetitions: 5
+
+coverage_scenarios:
+  - name: compact_rectangle
+    kind: rectangle
+    corners:
+      nw: [42.614491711416974, -5.563585388952936]
+      ne: [42.61448202489248, -5.563453034080995]
+      sw: [42.61438408328242, -5.563612444921233]
+      se: [42.61436524833972, -5.563474971352587]
+    row_spacing_m: 0.75
+    waypoint_spacing_m: 1.0
+    start_corner: nw
+
+  - name: medium_rectangle
+    kind: polygon
+    polygon:
+      - [42.311180, -6.205050]
+      - [42.311210, -6.204680]
+      - [42.310940, -6.204620]
+      - [42.310910, -6.204990]
+    row_spacing_m: 1.5
+    waypoint_spacing_m: 2.0
+    row_direction_deg: 8.0
+
+  - name: irregular_field
+    kind: polygon
+    polygon:
+      - [42.312180, -6.206000]
+      - [42.312270, -6.205480]
+      - [42.311960, -6.205250]
+      - [42.311650, -6.205520]
+      - [42.311760, -6.206080]
+    row_spacing_m: 2.0
+    waypoint_spacing_m: 2.5
+    row_direction_deg: 72.0
+
+routing_scenarios:
+  - name: north_loop
+    geojson: data/points.geojson
+    targets: [water_1, arbustivo_2, water_2]
+    waypoint_spacing_m: 10.0
+    grid_resolution_m: 5.0
+    osrm_fixture_key: north_loop
+    forbidden_zones:
+      - - [42.309900, -6.205450]
+        - [42.310180, -6.205450]
+        - [42.310180, -6.205000]
+        - [42.309900, -6.205000]
+
+  - name: west_east
+    geojson: data/points.geojson
+    targets: [pastizal_1, matorral_1, pastizal_2]
+    waypoint_spacing_m: 10.0
+    grid_resolution_m: 5.0
+    osrm_fixture_key: west_east
+    forbidden_zones:
+      - - [42.310570, -6.205350]
+        - [42.310920, -6.205350]
+        - [42.310920, -6.204900]
+        - [42.310570, -6.204900]
+
+  - name: hazard_crossing
+    geojson: data/points.geojson
+    targets: [pastizal_3, matorral_2, water_2]
+    waypoint_spacing_m: 8.0
+    grid_resolution_m: 4.0
+    osrm_fixture_key: hazard_crossing
+    forbidden_zones:
+      - - [42.310880, -6.204950]
+        - [42.311260, -6.204950]
+        - [42.311260, -6.204500]
+        - [42.310880, -6.204500]
+
+osrm:
+  fixture: data/osrm_fixture.json
+  profile: driving
+  max_snap_m: 100.0
+
+sensitivity:
+  scenario: compact_rectangle
+  row_spacing_m: [0.5, 0.75, 1.0, 1.5]
+  waypoint_spacing_m: [0.5, 1.0, 2.0]

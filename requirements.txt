@@ -1,2 +1,4 @@
-# GeoZigZag has no required third-party Python runtime dependencies.
-# The web UI uses Leaflet from a CDN and the CLI uses only the standard library.
+# The interactive planner core remains dependency-light. These packages power
+# the YAML experiment configuration and publication figure generation.
+matplotlib>=3.7,<4
+PyYAML>=6,<7
