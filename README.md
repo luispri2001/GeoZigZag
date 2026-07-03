@@ -84,8 +84,14 @@ outputs/evaluation/summary.json
 outputs/evaluation/paper_results.tex
 outputs/evaluation/figures/*.png
 outputs/evaluation/routes/<scenario>/<strategy>/
+paper/generated/paper_results.tex
+paper/figures/generated/*.png
 paper/build/main.pdf
+paper/main.pdf
 ```
+
+The generated paper table and figures are also versioned under `paper/`, so the
+manuscript source and its publication assets remain together in the repository.
 
 The evaluation never calls a live routing service. It uses the OSRM response
 fixture in `data/osrm_fixture.json`, including its retrieval date, source,

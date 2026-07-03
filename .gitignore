@@ -11,7 +11,7 @@ outputs/**
 
 # LaTeX build products (the source manuscript remains tracked)
 paper/build/
-paper/main.pdf
+paper/*.aux
 
 # Browser/test screenshots and temporary visual artifacts
 debug_screenshots/
