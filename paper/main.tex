@@ -10,7 +10,13 @@
 \usepackage{tikz}
 \usepackage{url}
 \usetikzlibrary{arrows.meta,positioning}
-\graphicspath{{paper/figures/}{paper/figures/generated/}}
+% Compile correctly in either supported layout:
+%   1) repository root with paper/main.tex as the main document; or
+%   2) the contents of paper/ uploaded as an independent Overleaf project.
+\graphicspath{{figures/}{figures/generated/}{paper/figures/}{paper/figures/generated/}}
+\newcommand{\paperinput}[1]{%
+  \IfFileExists{generated/#1}{\input{generated/#1}}{\input{paper/generated/#1}}%
+}
 
 \title{GeoZigzag Studio: A Reproducible Workflow for Agricultural Coverage and Semantic Georouting}
 
@@ -395,7 +401,7 @@ the test machine.
 \label{tab:coverage-results}
 \centering
 \scriptsize
-\input{paper/generated/paper_coverage_results.tex}
+\paperinput{paper_coverage_results.tex}
 \end{table}
 
 \begin{table*}[t]
@@ -404,7 +410,7 @@ route segments intersecting declared forbidden zones.}
 \label{tab:results}
 \centering
 \small
-\input{paper/generated/paper_results.tex}
+\paperinput{paper_results.tex}
 \end{table*}
 
 Table~\ref{tab:results} shows the routing comparison. Direct routing is the
@@ -581,6 +587,8 @@ tables from versioned inputs while keeping robot execution claims outside the
 evidence provided.
 
 \bibliographystyle{IEEEtran}
-\bibliography{paper/references}
+\IfFileExists{references.bib}
+  {\bibliography{references}}
+  {\bibliography{paper/references}}
 
 \end{document}
