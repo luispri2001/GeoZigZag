@@ -12,6 +12,7 @@ evaluate:
 sync-paper-assets: evaluate
 	mkdir -p paper/generated paper/figures/generated
 	cp $(EVALUATION_OUT)/paper_results.tex paper/generated/paper_results.tex
+	cp $(EVALUATION_OUT)/paper_coverage_results.tex paper/generated/paper_coverage_results.tex
 	cp $(EVALUATION_OUT)/figures/*.png paper/figures/generated/
 
 paper: sync-paper-assets

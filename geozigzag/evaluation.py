@@ -208,6 +208,24 @@ def _write_latex_table(rows: list[dict[str, Any]], output: Path) -> None:
     output.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def _write_latex_coverage_table(rows: list[dict[str, Any]], output: Path) -> None:
+    coverage_rows = [row for row in rows if row["task"] == "coverage"]
+    lines = [
+        "\\begin{tabular}{lrrrr}",
+        "\\hline",
+        "Scenario & Area (m$^2$) & Rows & Points & Dist. (m) \\\\",
+        "\\hline",
+    ]
+    for row in coverage_rows:
+        scenario = str(row["scenario"]).replace("_", "\\_")
+        lines.append(
+            f"{scenario} & {float(row['area_m2']):.1f} & {row['rows']} & "
+            f"{row['waypoints']} & {float(row['distance_m']):.1f} \\\\"
+        )
+    lines.extend(["\\hline", "\\end{tabular}"])
+    output.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def run_evaluation(config_path: str | Path, output_directory: str | Path) -> dict[str, Any]:
     config_path = Path(config_path).resolve()
     project_root = config_path.parent.parent
@@ -338,6 +356,7 @@ def run_evaluation(config_path: str | Path, output_directory: str | Path) -> dic
         )
     _plot_sensitivity(sensitivity_rows, figure_dir / "sensitivity.png")
     _write_latex_table(rows, output / "paper_results.tex")
+    _write_latex_coverage_table(rows, output / "paper_coverage_results.tex")
 
     config_digest = hashlib.sha256(config_path.read_bytes()).hexdigest()
     summary = {

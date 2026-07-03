@@ -82,9 +82,11 @@ outputs/evaluation/results.csv
 outputs/evaluation/sensitivity.csv
 outputs/evaluation/summary.json
 outputs/evaluation/paper_results.tex
+outputs/evaluation/paper_coverage_results.tex
 outputs/evaluation/figures/*.png
 outputs/evaluation/routes/<scenario>/<strategy>/
 paper/generated/paper_results.tex
+paper/generated/paper_coverage_results.tex
 paper/figures/generated/*.png
 paper/build/main.pdf
 paper/main.pdf

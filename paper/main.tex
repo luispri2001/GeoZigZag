@@ -3,6 +3,7 @@
 \usepackage[T1]{fontenc}
 \usepackage[utf8]{inputenc}
 \usepackage{amsmath,amssymb}
+\usepackage{balance}
 \usepackage{booktabs}
 \usepackage{cite}
 \usepackage{graphicx}
@@ -176,15 +177,46 @@ target order, strategy, or forbidden zone marks the route \emph{pending},
 disables stale downloads, and does not silently regenerate. Generation ends in
 success, warning, or error state. OSRM warnings show the maximum snap distance;
 intersection failures and fallback details remain visible to the operator.
-Figure~\ref{fig:ui} shows the mission preparation view.
+Figure~\ref{fig:ui} shows both preparation modes.
 
-\begin{figure}[t]
+\begin{figure*}[t]
 \centering
-\includegraphics[width=\columnwidth]{mission_costmap_ui.png}
-\caption{Mission interface with ordered targets, routing controls, a manually
-defined forbidden zone, route status, and export controls.}
+\begin{minipage}[t]{0.485\textwidth}
+\centering
+\includegraphics[width=\linewidth]{coverage_ui.png}\\[-1mm]
+\scriptsize (a) Coverage field, row controls, preview, and export.
+\end{minipage}\hfill
+\begin{minipage}[t]{0.485\textwidth}
+\centering
+\includegraphics[width=\linewidth]{mission_costmap_ui.png}\\[-1mm]
+\scriptsize (b) Ordered targets, forbidden zone, status, and routing controls.
+\end{minipage}
+\caption{The two GeoZigzag Studio route-preparation modes. Both use explicit
+generation, a shared route summary, visible validation state, and the same
+waypoint export schema.}
 \label{fig:ui}
-\end{figure}
+\end{figure*}
+
+\subsection{Operator Workflow}
+In coverage mode, the operator draws or edits a rectangle or free polygon,
+selects a start corner and row bearing, and sets row and waypoint spacing.
+These two spacings remain independent: the former changes the agricultural
+swaths, while the latter changes the sampling density of the exported route.
+The field and previous route remain visible while parameters are edited, but
+exports are marked stale until generation is requested again.
+
+In mission mode, the operator creates an ordered sequence from GeoJSON targets
+or custom map points and selects direct, semantic-cost, or OSRM routing. Manual
+forbidden polygons encode areas that must be checked during preparation. An
+OSRM result is accompanied by its snap-distance warning; a cost-aware failure
+is reported rather than replaced silently by a direct segment.
+
+After generation, the map provides the spatial sanity check, the summary shows
+route-scale metrics, and the status block distinguishes success, warning, and
+error. CSV is intended for inspection and analysis, YAML for ROS-oriented
+consumers, and GeoJSON for independent GIS verification. The experiment runner
+uses the same planners and schemas without the browser, binding every reported
+result to a versioned scenario configuration.
 
 \section{Methods}
 \subsection{Projection, Heading, and Orientation}
@@ -272,7 +304,52 @@ or crosses at least one polygon. It combines endpoint-in-polygon tests with
 orientation-based segment intersection, including collinear contact. A route
 is valid with respect to declared zones only when this count is zero.
 
+\subsection{Validation State and Failure Semantics}
+Let $H(P,\mathcal{Z})$ be the number of segments in route $P$ that intersect
+any polygon in the declared zone set $\mathcal{Z}$, and let $S(P)$ be the
+maximum OSRM snap distance when network routing is used. Given configured snap
+limit $S_{\max}$, the route-level acceptance predicate is
+\begin{equation}
+\mathcal{V}(P)=\bigl[|P|\geq2\bigr]\land
+\bigl[H(P,\mathcal{Z})=0\bigr]\land
+\bigl[S(P)\leq S_{\max}\bigr].
+\end{equation}
+The snap term is omitted for local routes. This predicate describes only the
+declared planning constraints; it is not a physical safety certificate.
+
+The software distinguishes four states. \emph{Pending} means an input changed
+after the last generation, so existing downloads are disabled. \emph{Success}
+means the selected planner returned a route satisfying its configured checks.
+\emph{Warning} preserves an inspectable result while exposing conditions such
+as nonzero but permitted snap distance. \emph{Error} returns no current export
+when spacing is invalid, geometry is degenerate, targets are missing, a route
+is impossible, or a required service response is unavailable. The status and
+detailed reason are stored separately so the main map remains readable without
+hiding the failure cause.
+
+Export occurs only from a non-pending generated state. CSV and YAML contain the
+same WGS84, yaw, and quaternion values; GeoJSON adds a route line and indexed
+point features. This one-to-one schema permits programmatic equality checks
+across formats and prevents a browser preview from diverging silently from the
+files used in evaluation.
+
 \section{Experimental Evaluation}
+\subsection{Research Questions}
+The benchmark is organized around four questions. \emph{RQ1}: do row spacing
+and waypoint spacing produce distinguishable and predictable effects on
+coverage geometry and serialization density? \emph{RQ2}: what distance and
+path-complexity penalty is paid when declared forbidden zones are enforced?
+\emph{RQ3}: how different are network-routed missions from exact-target direct
+routes, particularly in input-to-network snap distance? \emph{RQ4}: can every
+reported route, metric, figure, and table be regenerated offline from versioned
+inputs?
+
+These questions evaluate workflow behavior rather than ranking GeoZigzag
+against full vehicle-aware CPP or navigation systems. RQ1 is addressed by the
+coverage scenarios and sensitivity sweep; RQ2 by paired direct and cost-aware
+routes; RQ3 by cached OSRM responses; and RQ4 by repeated execution, artifact
+generation, and automated tests.
+
 \subsection{Protocol}
 The evaluation configuration fixes seed 20260703 and executes each primary
 planner five times. Timing is the median wall-clock duration on an Intel
@@ -289,12 +366,37 @@ median computation time, forbidden-zone intersections, maximum OSRM snap
 distance, and success rate. Coverage sensitivity crosses four row spacings
 $(0.5,0.75,1.0,1.5)$~m with three waypoint spacings $(0.5,1.0,2.0)$~m.
 
+\begin{table}[t]
+\caption{Semantic routing scenario configuration. Target initials denote
+water (W), shrub (A), grass (P), and scrub (M).}
+\label{tab:routing-scenarios}
+\centering
+\scriptsize
+\begin{tabular}{lcccc}
+\toprule
+Scenario & Order & Grid (m) & Sample (m) & Zones\\
+\midrule
+north-loop & W--A--W & 5 & 10 & 1\\
+west--east & P--M--P & 5 & 10 & 1\\
+hazard-crossing & P--M--W & 4 & 8 & 1\\
+\bottomrule
+\end{tabular}
+\end{table}
+
 \subsection{Results}
 All 60 primary executions (12 planner--scenario combinations, five repeats)
 completed, for 100\% software-level generation success. Coverage produced
 224, 347, and 710 waypoints over 16, 27, and 36 rows, with route distances of
 205.8, 682.0, and 1753.7~m. Median coverage computation remained below 1~ms on
 the test machine.
+
+\begin{table}[t]
+\caption{Coverage results generated from the configured fields.}
+\label{tab:coverage-results}
+\centering
+\scriptsize
+\input{paper/generated/paper_coverage_results.tex}
+\end{table}
 
 \begin{table*}[t]
 \caption{Routing results generated by \texttt{make reproduce}. ``Hits'' counts
@@ -340,6 +442,53 @@ changing waypoint spacing from 0.5 to 2.0~m changes exported points from 430 to
 \label{fig:sensitivity}
 \end{figure}
 
+\subsection{Robustness and Negative Cases}
+Table~\ref{tab:negative-tests} summarizes failure-oriented checks. They execute
+offline and assert observable behavior, not only that an exception occurred.
+In particular, an impossible cost-grid mission is rejected rather than
+silently converted into a direct route, and an OSRM transport failure is
+reported through the external-routing error contract.
+
+\begin{table}[t]
+\caption{Offline robustness checks and required outcomes.}
+\label{tab:negative-tests}
+\centering
+\scriptsize
+\begin{tabular}{ll}
+\toprule
+Input or event & Required outcome\\
+\midrule
+$s_r\leq0$ or $s_w\leq0$ & Reject before planning\\
+Degenerate polygon & No coverage export\\
+Target enclosed by a zone & Explicit no-route error\\
+OSRM timeout/failure & External-service error\\
+Edit after generation & Pending state; exports disabled\\
+Excessive OSRM snap & Reject above configured limit\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Discussion}
+The experiments expose three workflow-level trade-offs. First, row spacing and
+waypoint spacing are not interchangeable controls. Row spacing changes the
+physical sweep geometry, route length, and number of turns; waypoint spacing
+primarily changes serialization density. Reporting only waypoint count would
+therefore confound two different design decisions.
+
+Second, a shorter geographic route is not necessarily an admissible route.
+Direct interpolation provides a useful lower bound on distance but crosses the
+declared zones in all three routing scenarios. The cost-aware planner removes
+those intersections at a measured distance penalty, while its additional
+corners reveal the need for curvature-aware post-processing. Validation and
+path quality must consequently be reported together.
+
+Third, network routing introduces a different uncertainty. The OSRM service
+successfully returned all cached routes, yet two routes were much longer than
+the direct alternatives and snap distances reached 90.8~m. Keeping exact input
+targets, snapped geometry, service provenance, and validation results separate
+prevents a visually plausible map route from being mistaken for an executable
+robot path.
+
 \section{Reproducibility and Software Validation}
 The command \texttt{make reproduce} runs 20 offline tests, the configured
 evaluation, figure/table generation, and LaTeX compilation. Each successful
@@ -356,6 +505,50 @@ evaluation. The previous public API remains as a compatibility facade. This
 keeps the web/CLI workflow stable while allowing each scientific component to
 be exercised independently.
 
+\begin{table}[t]
+\caption{Versioned inputs and generated reproducibility artifacts.}
+\label{tab:artifacts}
+\centering
+\scriptsize
+\begin{tabular}{ll}
+\toprule
+Artifact & Reproducibility role\\
+\midrule
+\texttt{evaluation.yaml} & Scenarios, parameters, seed, repeats\\
+\texttt{osrm\_fixture.json} & Cached geometry, source, date, snaps\\
+\texttt{waypoints.*} & CSV/YAML route and orientation schema\\
+\texttt{route.geojson} & Independent GIS route inspection\\
+\texttt{results.csv} & Per-scenario metrics and success rate\\
+\texttt{summary.json} & Config hash, provenance, full results\\
+\texttt{figures/*.png} & Code-generated paper comparisons\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Visual verification is part of the protocol but not substituted for numeric
+validation. Each generated GeoJSON route can be overlaid with its targets,
+field boundary, and forbidden zones. This catches coordinate-order or origin
+errors that may still produce syntactically valid CSV/YAML files. Conversely,
+the intersection and snap metrics prevent a visually plausible screenshot from
+being treated as sufficient evidence.
+
+\subsection{Downstream ROS 2 and Simulation Boundary}
+The export is a preparation contract, not a complete launch interface. A Nav2
+consumer must convert WGS84 coordinates into its configured \texttt{map}
+frame, preserve the exported orientation convention, and validate localization
+and costmap assumptions. Likewise, camera-based crop-row control consumes
+images and publishes velocity commands rather than geographic waypoints.
+
+Repository inspection identified a feasible staged validation: generate a
+Gazebo world with the selected geographic origin, spawn the agricultural robot,
+verify camera, odometry, command, and TF interfaces, then alternate global
+row-entry goals with local crop-row control. This experiment requires explicit
+command arbitration and row-end transitions; it is kept separate from the
+software benchmark so that preparation metrics are not presented as navigation
+performance.
+
+\newpage
+\balance
 \section{Limitations and Threats to Validity}
 The semantic cost layer is a controlled proxy built from labelled point
 neighborhoods, not a calibrated traversability map. The grid paths contain

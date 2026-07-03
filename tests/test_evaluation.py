@@ -17,6 +17,7 @@ class EvaluationTests(unittest.TestCase):
                 "results.csv",
                 "sensitivity.csv",
                 "paper_results.tex",
+                "paper_coverage_results.tex",
                 "figures/comparison_north_loop.png",
                 "figures/sensitivity.png",
             }
