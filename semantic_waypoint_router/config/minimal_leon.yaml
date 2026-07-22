@@ -1,0 +1,62 @@
+project_name: leon_public_map_minimal
+
+aoi:
+  type: center_radius
+  lat: 42.5987
+  lon: -5.5671
+  radius_m: 500
+
+grid:
+  crs: EPSG:25830
+  resolution_m: 5.0
+  padding_m: 10.0
+  nodata: -9999.0
+
+sources:
+  ign_mdt:
+    enabled: true
+    url: https://servicios.idee.es/wcs-inspire/mdt
+    coverage: Elevacion25830_5
+    crs: EPSG:25830
+    source_resolution_m: 5.0
+    max_pixels_per_side: 5000
+    timeout_s: 180
+  ign_orthophoto:
+    enabled: false
+  ign_mds:
+    enabled: false
+  osm:
+    enabled: true
+    overpass_url: https://overpass-api.de/api/interpreter
+    timeout_s: 180
+    user_agent: public-map-generator/0.1
+  sentinel2:
+    enabled: false
+
+terrain:
+  roughness_window_m: 15.0
+  relief_window_m: 25.0
+  slope_warning_deg: 12.0
+  slope_blocked_deg: 25.0
+  roughness_warning_m: 0.20
+  roughness_blocked_m: 0.60
+  max_step_warning_m: 0.20
+  max_step_blocked_m: 0.45
+  surface_height_warning_m: 0.20
+  surface_height_blocked_m: 0.45
+  water_proximity_m: 60.0
+
+weights:
+  slope: 0.24
+  roughness: 0.20
+  max_step: 0.18
+  obstacles: 0.28
+  wetness: 0.10
+  road_bonus: 0.20
+
+output:
+  directory: outputs/leon_minimal
+  save_multiband: true
+  save_preview: true
+  save_qgis_project: true
+  overwrite: true

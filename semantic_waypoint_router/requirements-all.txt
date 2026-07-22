@@ -1,0 +1,9 @@
+-r requirements.txt
+planetary-computer>=1.0.0
+pystac-client>=0.8.2
+folium>=0.17
+streamlit>=1.36
+streamlit-folium>=0.22
+pytest>=8.2
+ruff>=0.5
+mypy>=1.10

@@ -1,0 +1,30 @@
+project_name: geojson_public_map
+
+aoi:
+  type: geojson
+  path: example_aoi/parcela.geojson
+
+grid:
+  crs: EPSG:25830
+  resolution_m: 5.0
+  padding_m: 10.0
+  nodata: -9999.0
+
+sources:
+  ign_mdt:
+    enabled: true
+  ign_orthophoto:
+    enabled: true
+  ign_mds:
+    enabled: false
+  osm:
+    enabled: true
+  sentinel2:
+    enabled: false
+
+output:
+  directory: outputs/geojson_example
+  save_multiband: true
+  save_preview: true
+  save_qgis_project: true
+  overwrite: true

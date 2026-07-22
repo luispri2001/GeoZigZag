@@ -12,6 +12,28 @@ The tool exports latitude, longitude, yaw, and planar quaternion values so the
 same route can be inspected in the browser and reused by ROS-style waypoint
 followers.
 
+## Semantic Waypoint Router
+
+The `semantic-waypoint-router` branch also includes the integrated Streamlit
+application under [`semantic_waypoint_router/`](semantic_waypoint_router/).
+Its primary workflow is an ordered waypoint mission. Public terrain and OSM
+layers support that mission by blocking buildings, water, barriers and unsafe
+terrain, preferring mapped paths, and optionally proposing safe approach
+waypoints for resources such as forests, scrub, water bodies and waterways.
+
+Run it from the repository root:
+
+```bash
+cd semantic_waypoint_router
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install -e '.[all,dev]'
+streamlit run app.py --server.port 8501
+```
+
+The generated public maps and mission routes stay under
+`semantic_waypoint_router/outputs/` and are ignored by Git.
+
 ## Screenshots
 
 ### Field Coverage
