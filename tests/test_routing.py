@@ -75,6 +75,58 @@ class RoutingTests(unittest.TestCase):
                 forbidden_zones=enclosing_start,
             )
 
+    def test_building_and_water_semantic_zones_are_impassable(self) -> None:
+        for kind in ("building", "water"):
+            zone = [
+                (42.3098, -6.2048),
+                (42.3102, -6.2048),
+                (42.3102, -6.2044),
+                (42.3098, -6.2044),
+            ]
+            route = generate_cost_route(
+                self.geojson,
+                ["water_1", "arbustivo_2"],
+                resolution_m=2.0,
+                semantic_zones=[{"kind": kind, "ring": zone}],
+            )
+            self.assertEqual(
+                forbidden_zone_intersections(route, [zone]),
+                0,
+                msg=f"The route crossed a {kind} zone.",
+            )
+
+    def test_forest_semantic_zone_is_avoided_when_a_short_detour_exists(self) -> None:
+        zone = [
+            (42.3098, -6.2048),
+            (42.3102, -6.2048),
+            (42.3102, -6.2044),
+            (42.3098, -6.2044),
+        ]
+        route = generate_cost_route(
+            self.geojson,
+            ["water_1", "arbustivo_2"],
+            resolution_m=2.0,
+            semantic_zones=[{"kind": "forest", "ring": zone}],
+        )
+        self.assertEqual(forbidden_zone_intersections(route, [zone]), 0)
+
+    def test_unknown_semantic_zone_kind_is_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Unknown semantic zone kind"):
+            generate_cost_route(
+                self.geojson,
+                ["water_1", "water_2"],
+                semantic_zones=[
+                    {
+                        "kind": "lava",
+                        "ring": [
+                            (42.3100, -6.2050),
+                            (42.3101, -6.2050),
+                            (42.3101, -6.2049),
+                        ],
+                    }
+                ],
+            )
+
     def test_osrm_response_exposes_snap_distance(self) -> None:
         payload = {
             "code": "Ok",

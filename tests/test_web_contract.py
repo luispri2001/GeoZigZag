@@ -16,8 +16,11 @@ class WebContractTests(unittest.TestCase):
         for text in ("Generated with warnings", "Route could not be generated", "worstSnap.toFixed(1)"):
             self.assertIn(text, self.source)
 
-    def test_only_manual_forbidden_zones_are_presented(self) -> None:
-        self.assertIn("Manual forbidden zones", self.source)
+    def test_manual_semantic_zones_are_available_to_local_astar(self) -> None:
+        for kind in ("building", "water", "forest"):
+            self.assertIn(f'<option value="{kind}">', self.source)
+        self.assertIn("SEMANTIC_ZONE_STYLE", self.source)
+        self.assertIn("semanticCosts", self.source)
         self.assertNotIn("Automatic building-footprint safety", self.source)
 
 

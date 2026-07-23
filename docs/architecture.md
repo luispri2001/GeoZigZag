@@ -3,7 +3,7 @@
 ## Workflow
 
 ```text
-WGS84 field/targets + parameters + forbidden zones
+WGS84 field/targets + parameters + semantic zones
                          |
                          v
                  local ENU projection
@@ -46,8 +46,21 @@ require an explicit in-polygon connector planner.
 `routing.py` provides:
 
 - direct interpolation between ordered targets;
-- semantic-cost A* on an 8-connected local grid with forbidden cells; and
+- semantic-cost A* on an 8-connected local grid; and
 - live or cached OSRM adapters with snap-distance validation.
+
+Manually drawn semantic polygons use a deliberately small policy:
+
+| Zone | Local A* policy | OSM Balanced/Strict |
+| --- | --- | --- |
+| Building | impassable | intersection validation/local fallback |
+| Water | impassable | intersection validation/local fallback |
+| Forest | high traversal cost (`80`) | visual context only |
+
+The base local-grid cost is `10`. Forest is penalized rather than universally
+blocked because mapped woodland may include usable tracks or sparse areas.
+This is a planning assumption, not a claim of measured traversability.
+Previously stored untyped polygons are loaded as buildings.
 
 `metrics.py` counts polyline heading changes of at least 30 degrees. This is not
 a dynamically feasible steering or headland-turn metric.

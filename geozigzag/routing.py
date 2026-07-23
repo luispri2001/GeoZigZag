@@ -31,6 +31,12 @@ LANDCOVER_COST = {
     "water": 1000.0,
 }
 
+SEMANTIC_ZONE_COST = {
+    "building": float("inf"),
+    "water": float("inf"),
+    "forest": 80.0,
+}
+
 
 class RouteNotFound(RuntimeError):
     """Raised when no admissible path exists."""
@@ -135,13 +141,16 @@ def generate_cost_route(
     resolution_m: float = 5.0,
     forbidden_zones: Sequence[Sequence[PointLL]] | None = None,
     padding_m: float = 50.0,
+    semantic_zones: Sequence[dict[str, Any]] | None = None,
 ) -> list[dict[str, float]]:
     """Route ordered semantic targets on a local 8-connected cost grid.
 
     Point features influence circular neighborhoods: two cells for ordinary
-    land-cover labels and four for water.  Forbidden polygons are impassable.
-    The objective is the sum of cell cost multiplied by cardinal/diagonal step
-    length; it is a planning proxy, not a learned traversability model.
+    land-cover labels and four for water. Legacy forbidden polygons and
+    building/water semantic zones are impassable; forest zones carry a high
+    traversal cost. The objective is the sum of cell cost multiplied by
+    cardinal/diagonal step length; it is a planning proxy, not a learned
+    traversability model.
     """
     if resolution_m <= 0:
         raise ValueError("Grid resolution must be positive.")
@@ -156,7 +165,22 @@ def generate_cost_route(
         label = str(feature.get("properties", {}).get("landcover", "pastizal"))
         features.append((float(lat), float(lon), label))
 
+    normalized_semantic_zones: list[tuple[str, Sequence[PointLL]]] = []
+    for zone in semantic_zones or []:
+        kind = str(zone.get("kind", "building")).lower()
+        if kind not in SEMANTIC_ZONE_COST:
+            raise ValueError(
+                f"Unknown semantic zone kind {kind!r}; expected building, water or forest."
+            )
+        ring = zone.get("ring")
+        if not isinstance(ring, Sequence) or isinstance(ring, (str, bytes)) or len(ring) < 3:
+            raise ValueError("A semantic zone ring needs at least three coordinates.")
+        normalized_semantic_zones.append((kind, ring))
+
     zone_points = [point for zone in forbidden_zones or [] for point in zone]
+    zone_points.extend(
+        point for _, ring in normalized_semantic_zones for point in ring
+    )
     all_points = waypoints + [(lat, lon) for lat, lon, _ in features] + zone_points
     origin = local_origin(all_points)
     xy_points = [ll_to_xy(*point, *origin) for point in all_points]
@@ -192,11 +216,19 @@ def generate_cost_route(
         grid[row][col] = max(values)
 
     zones_xy = [[ll_to_xy(*point, *origin) for point in zone] for zone in forbidden_zones or []]
+    semantic_zones_xy = [
+        (kind, [ll_to_xy(*point, *origin) for point in ring])
+        for kind, ring in normalized_semantic_zones
+    ]
     for row in range(height):
         for col in range(width):
             point = (min_x + col * resolution_m, min_y + row * resolution_m)
             if any(point_in_polygon_xy(point, zone) for zone in zones_xy):
                 grid[row][col] = float("inf")
+                continue
+            for kind, zone in semantic_zones_xy:
+                if point_in_polygon_xy(point, zone):
+                    grid[row][col] = max(grid[row][col], SEMANTIC_ZONE_COST[kind])
 
     route: list[PointLL] = []
     for first, second in zip(waypoints, waypoints[1:]):

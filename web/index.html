@@ -231,7 +231,9 @@
     .swatch.coverage { background: var(--field); }
     .swatch.osm { background: var(--osm); }
     .swatch.cost { background: var(--warn); }
-    .swatch.manual-obstacle { background: rgba(180,90,20,.85); }
+    .swatch.semantic-building { background: #b65d13; }
+    .swatch.semantic-water { background: #2f80ed; }
+    .swatch.semantic-forest { background: #3a7d44; }
 
     .cache-tools { border: 1px solid var(--line); border-radius: 8px; background: #fbfbf8; padding: 10px; margin: 0 0 10px; }
     .cache-tools.hidden { display: none; }
@@ -387,22 +389,30 @@
 
         <div id="missionPanel" class="hidden">
           <details id="obstaclesSection" class="panel-section" open>
-            <summary>Forbidden zones</summary>
+            <summary>Semantic zones</summary>
             <div class="panel-body">
               <div id="manualObstacleTools" class="cache-tools">
                 <div class="cache-head">
-                  <span class="cache-title">Manual forbidden zones</span>
-                  <span id="manualObstacleStatus" class="cache-status">0 manual zones</span>
+                  <span class="cache-title">Manual map zones</span>
+                  <span id="manualObstacleStatus" class="cache-status">0 semantic zones</span>
+                </div>
+                <div class="field">
+                  <label for="manualObstacleKind">Zone type</label>
+                  <select id="manualObstacleKind">
+                    <option value="building">Building — blocked</option>
+                    <option value="water">Water — blocked</option>
+                    <option value="forest">Forest — high cost</option>
+                  </select>
                 </div>
                 <div class="cache-actions four">
-                  <button id="drawManualObstacleBtn" class="secondary" type="button" title="Draw a forbidden zone on the map">Draw forbidden zone</button>
-                  <button id="finishManualObstacleBtn" class="secondary" type="button" title="Finish the current forbidden-zone polygon">Finish drawing</button>
+                  <button id="drawManualObstacleBtn" class="secondary" type="button" title="Draw a semantic zone on the map">Draw zone</button>
+                  <button id="finishManualObstacleBtn" class="secondary" type="button" title="Finish the current semantic-zone polygon">Finish drawing</button>
                   <button id="cancelManualObstacleBtn" class="secondary" type="button">Cancel drawing</button>
                   <button id="clearManualObstacleBtn" class="secondary danger" type="button">Delete all zones</button>
                 </div>
                 <div id="manualObstacleList" class="zone-list"></div>
               </div>
-              <p id="obstacleHint" class="compact-note">Draw forbidden areas manually. Balanced or Strict OSM mode can use them for local avoidance.</p>
+              <p id="obstacleHint" class="compact-note">Draw buildings, water or forest so the local cost route can account for them.</p>
             </div>
           </details>
 
@@ -513,7 +523,7 @@
               <option value="driving">Driving roads</option>
             </select>
           </div>
-          <p id="costRouteNote" class="compact-note hidden">Local costmap A* uses the POI land-cover costs.</p>
+          <p id="costRouteNote" class="compact-note hidden">Local costmap A* blocks buildings and water and assigns a high traversal cost to forest.</p>
         </section>
 
         <section class="map-panel map-route-block" aria-label="Route generation">
@@ -718,7 +728,11 @@ function updateLegend() {
       items.push([cls, label]);
     }
     if (missionStops.length || poiGeojson.features.length) items.push(["poly", "Waypoints"]);
-    if (manualObstacles.length || manualObstacleDraft.length) items.push(["manual-obstacle", "Forbidden zone"]);
+    const kinds = new Set(manualObstacles.map(zone => zone.kind || "building"));
+    if (manualObstacleDraft.length) kinds.add(safeVal("manualObstacleKind", "building"));
+    for (const kind of ["building", "water", "forest"]) {
+      if (kinds.has(kind)) items.push([`semantic-${kind}`, SEMANTIC_ZONE_STYLE[kind].label]);
+    }
   }
   legend.classList.toggle("hidden", items.length === 0);
   body.innerHTML = items.map(([cls, label]) => `<div class="leg"><span class="swatch ${cls}"></span>${label}</div>`).join("");
@@ -1590,10 +1604,16 @@ function bboxOverlap(a, b) {
 }
 
 const MANUAL_OBSTACLE_STORAGE_KEY = "geozigzag_manual_obstacles_v1";
+const SEMANTIC_ZONE_STYLE = {
+  building: {label: "Building", color: "#b65d13", cost: Infinity},
+  water: {label: "Water", color: "#2f80ed", cost: Infinity},
+  forest: {label: "Forest", color: "#3a7d44", cost: 80}
+};
 
 function manualObstacleToBuilding(obstacle) {
   const ring = obstacle.ring || [];
-  return {id: obstacle.id || `manual_${Date.now()}`, manual: true, ring, bbox: obstacle.bbox || routeBBox(ring)};
+  const kind = SEMANTIC_ZONE_STYLE[obstacle.kind] ? obstacle.kind : "building";
+  return {id: obstacle.id || `manual_${Date.now()}`, manual: true, kind, ring, bbox: obstacle.bbox || routeBBox(ring)};
 }
 function normalizeManualObstacles(items) {
   return (items || [])
@@ -1614,7 +1634,7 @@ function updateManualObstacleStatus() {
   if (el) {
     const count = manualObstacles.length;
     const action = manualObstacleEditSnapshot ? "editing" : "drawing";
-    el.textContent = `${count} manual zone${count === 1 ? "" : "s"}` + (manualObstacleDrawMode ? ` · ${action} ${manualObstacleDraft.length}` : "");
+    el.textContent = `${count} semantic zone${count === 1 ? "" : "s"}` + (manualObstacleDrawMode ? ` · ${action} ${manualObstacleDraft.length}` : "");
   }
   const drawBtn = $("drawManualObstacleBtn");
   const finishBtn = $("finishManualObstacleBtn");
@@ -1625,7 +1645,10 @@ function updateManualObstacleStatus() {
   const list = $("manualObstacleList");
   if (list) {
     list.innerHTML = manualObstacles.length
-      ? manualObstacles.map((zone, i) => `<div class="zone-row"><span><strong>Zone ${i + 1}</strong><br>${Math.max(0, (zone.ring || []).length - 1)} points</span><span class="zone-actions"><button class="secondary" type="button" data-zone-edit="${i}">Edit</button><button class="secondary danger" type="button" data-zone-delete="${i}">Delete</button></span></div>`).join("")
+      ? manualObstacles.map((zone, i) => {
+          const style = SEMANTIC_ZONE_STYLE[zone.kind] || SEMANTIC_ZONE_STYLE.building;
+          return `<div class="zone-row"><span><strong>${style.label} ${i + 1}</strong><br>${Math.max(0, (zone.ring || []).length - 1)} points</span><span class="zone-actions"><button class="secondary" type="button" data-zone-edit="${i}">Edit</button><button class="secondary danger" type="button" data-zone-delete="${i}">Delete</button></span></div>`;
+        }).join("")
       : "";
   }
 }
@@ -1633,20 +1656,26 @@ function drawManualObstacles() {
   if (!manualObstacleLayer) return;
   manualObstacleLayer.clearLayers();
   for (const obstacle of manualObstacles) {
+    const style = SEMANTIC_ZONE_STYLE[obstacle.kind] || SEMANTIC_ZONE_STYLE.building;
     L.polygon(obstacle.ring, {
-      color: "#b65d13",
+      color: style.color,
       weight: 3,
-      fillColor: "#b65d13",
+      fillColor: style.color,
       fillOpacity: 0.28,
       dashArray: "6,4"
-    }).addTo(manualObstacleLayer).bindTooltip("Manual forbidden zone", {direction:"center"});
+    }).addTo(manualObstacleLayer).bindTooltip(
+      `${style.label} · ${Number.isFinite(style.cost) ? "high cost" : "blocked"}`,
+      {direction:"center"}
+    );
   }
   if (manualObstacleDraft.length) {
-    L.polyline(manualObstacleDraft, {color: "#b65d13", weight: 3, dashArray: "4,4"}).addTo(manualObstacleLayer);
+    const draftKind = safeVal("manualObstacleKind", "building");
+    const draftStyle = SEMANTIC_ZONE_STYLE[draftKind] || SEMANTIC_ZONE_STYLE.building;
+    L.polyline(manualObstacleDraft, {color: draftStyle.color, weight: 3, dashArray: "4,4"}).addTo(manualObstacleLayer);
     manualObstacleDraft.forEach((p, i) => {
       const icon = L.divIcon({
         className: "",
-        html: `<div style="width:18px;height:18px;border-radius:50%;background:#b65d13;border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.35);color:#fff;font-size:10px;font-weight:900;display:flex;align-items:center;justify-content:center">${i+1}</div>`,
+        html: `<div style="width:18px;height:18px;border-radius:50%;background:${draftStyle.color};border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.35);color:#fff;font-size:10px;font-weight:900;display:flex;align-items:center;justify-content:center">${i+1}</div>`,
         iconSize: [18,18], iconAnchor: [9,9]
       });
       L.marker(p, {icon}).addTo(manualObstacleLayer);
@@ -1662,7 +1691,8 @@ function startManualObstacleDraw() {
   manualObstacleEditSnapshot = null;
   map.getContainer().style.cursor = "crosshair";
   setDrawer(false);
-  setStatus("Drawing mode enabled. Click the map to outline a forbidden zone.", "info");
+  const style = SEMANTIC_ZONE_STYLE[safeVal("manualObstacleKind", "building")];
+  setStatus(`Drawing ${style.label.toLowerCase()} zone. Click the map to outline it.`, "info");
   updateManualObstacleStatus();
   drawManualObstacles();
 }
@@ -1676,7 +1706,8 @@ function finishManualObstacleDraw() {
   const first = ring[0], last = ring[ring.length - 1];
   if (Math.abs(first[0] - last[0]) > 1e-12 || Math.abs(first[1] - last[1]) > 1e-12) ring.push(first);
   const editing = manualObstacleEditSnapshot;
-  const zone = manualObstacleToBuilding({id: editing?.obstacle?.id || `manual_${Date.now()}`, ring});
+  const kind = safeVal("manualObstacleKind", editing?.obstacle?.kind || "building");
+  const zone = manualObstacleToBuilding({id: editing?.obstacle?.id || `manual_${Date.now()}`, kind, ring});
   if (editing) manualObstacles.splice(Math.min(editing.index, manualObstacles.length), 0, zone);
   else manualObstacles.push(zone);
   manualObstacleDraft = [];
@@ -1686,8 +1717,8 @@ function finishManualObstacleDraw() {
   saveManualObstacles();
   drawManualObstacles();
   updateManualObstacleStatus();
-  setStatus(`Forbidden zone ${editing ? "updated" : "saved"}. Press Generate to use it in the route.`, "ok");
-  if (appMode === "mission") scheduleGenerate(`Forbidden zone ${editing ? "updated" : "added"}.`, 500);
+  setStatus(`${SEMANTIC_ZONE_STYLE[kind].label} zone ${editing ? "updated" : "saved"}. Press Generate to use it in the route.`, "ok");
+  if (appMode === "mission") scheduleGenerate(`Semantic zone ${editing ? "updated" : "added"}.`, 500);
 }
 function cancelManualObstacleDraw() {
   const editing = manualObstacleEditSnapshot;
@@ -1710,8 +1741,8 @@ function clearManualObstacles() {
   saveManualObstacles();
   drawManualObstacles();
   updateManualObstacleStatus();
-  setStatus("Forbidden zones cleared.", "warn");
-  if (appMode === "mission") scheduleGenerate("Forbidden zones cleared.", 500);
+  setStatus("Semantic zones cleared.", "warn");
+  if (appMode === "mission") scheduleGenerate("Semantic zones cleared.", 500);
 }
 function deleteManualObstacle(index) {
   if (index < 0 || index >= manualObstacles.length) return;
@@ -1719,14 +1750,15 @@ function deleteManualObstacle(index) {
   saveManualObstacles();
   drawManualObstacles();
   updateManualObstacleStatus();
-  setStatus("Forbidden zone deleted.", "ok");
-  if (appMode === "mission") scheduleGenerate("Forbidden zone deleted.", 500);
+  setStatus("Semantic zone deleted.", "ok");
+  if (appMode === "mission") scheduleGenerate("Semantic zone deleted.", 500);
 }
 function editManualObstacle(index) {
   if (index < 0 || index >= manualObstacles.length) return;
   if (manualObstacleDrawMode) cancelManualObstacleDraw();
   if (appMode !== "mission") setMode("mission");
   const obstacle = manualObstacles.splice(index, 1)[0];
+  if ($("manualObstacleKind")) $("manualObstacleKind").value = obstacle.kind || "building";
   const ring = (obstacle.ring || []).map(p => [p[0], p[1]]);
   const first = ring[0], last = ring[ring.length - 1];
   if (first && last && Math.abs(first[0] - last[0]) < 1e-12 && Math.abs(first[1] - last[1]) < 1e-12) ring.pop();
@@ -1738,7 +1770,7 @@ function editManualObstacle(index) {
   drawManualObstacles();
   updateManualObstacleStatus();
   setDrawer(false);
-  setStatus("Editing forbidden zone. Add points on the map, then finish or cancel.", "info");
+  setStatus("Editing semantic zone. Add points on the map, then finish or cancel.", "info");
 }
 function onManualObstacleMapClick(latlng) {
   manualObstacleDraft.push([latlng.lat, latlng.lng]);
@@ -1748,6 +1780,9 @@ function onManualObstacleMapClick(latlng) {
 }
 function manualObstaclesForBbox(bbox) {
   return manualObstacles.filter(o => bboxOverlap(o.bbox || routeBBox(o.ring), bbox));
+}
+function manualHardObstaclesForBbox(bbox) {
+  return manualObstaclesForBbox(bbox).filter(o => o.kind !== "forest");
 }
 
 function uniqueBuildings(buildings) {
@@ -1835,15 +1870,21 @@ function routeBuildingHits(routePoints, buildings, bufferM) {
   }
   return hits;
 }
+function cellIsBlocked(value) {
+  return value === true || !Number.isFinite(value);
+}
+function cellTraversalCost(value) {
+  return typeof value === "number" ? value : 1;
+}
 function nearestFreeCell(grid, start, maxRadius = 12) {
   const h = grid.length, w = grid[0].length;
-  if (start[0] >= 0 && start[0] < h && start[1] >= 0 && start[1] < w && !grid[start[0]][start[1]]) return start;
+  if (start[0] >= 0 && start[0] < h && start[1] >= 0 && start[1] < w && !cellIsBlocked(grid[start[0]][start[1]])) return start;
   for (let r = 1; r <= maxRadius; r++) {
     for (let dy = -r; dy <= r; dy++) {
       for (let dx = -r; dx <= r; dx++) {
         if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue;
         const yy = start[0] + dy, xx = start[1] + dx;
-        if (yy >= 0 && yy < h && xx >= 0 && xx < w && !grid[yy][xx]) return [yy, xx];
+        if (yy >= 0 && yy < h && xx >= 0 && xx < w && !cellIsBlocked(grid[yy][xx])) return [yy, xx];
       }
     }
   }
@@ -1871,10 +1912,15 @@ function astarGrid(grid, start, goal) {
     }
     for (const [dy, dx] of dirs) {
       const ny = current[0] + dy, nx = current[1] + dx;
-      if (ny < 0 || ny >= h || nx < 0 || nx >= w || grid[ny][nx]) continue;
+      if (ny < 0 || ny >= h || nx < 0 || nx >= w || cellIsBlocked(grid[ny][nx])) continue;
+      if (dy && dx && (
+        cellIsBlocked(grid[current[0]][nx]) ||
+        cellIsBlocked(grid[ny][current[1]])
+      )) continue;
       const nk = key([ny, nx]);
       const step = dy && dx ? Math.SQRT2 : 1;
-      const newCost = cost.get(key(current)) + step;
+      const traversal = (cellTraversalCost(grid[current[0]][current[1]]) + cellTraversalCost(grid[ny][nx])) / 2;
+      const newCost = cost.get(key(current)) + step * traversal;
       if (newCost < (cost.get(nk) ?? Infinity)) {
         cost.set(nk, newCost);
         came.set(nk, current);
@@ -1885,7 +1931,7 @@ function astarGrid(grid, start, goal) {
   }
   return [];
 }
-function localAstarAroundBuildings(start, end, buildings, bufferM, preferredResolution = 3) {
+function localAstarAroundBuildings(start, end, buildings, bufferM, preferredResolution = 3, semanticCosts = false) {
   const bbox = expandBBoxMeters(routeBBox([start, end, ...buildings.flatMap(b => b.ring)]), Math.max(20, bufferM + 10));
   const origin = [(bbox.south + bbox.north) / 2, (bbox.west + bbox.east) / 2];
   const minXY = llToXY(bbox.south, bbox.west, origin);
@@ -1896,7 +1942,10 @@ function localAstarAroundBuildings(start, end, buildings, bufferM, preferredReso
   const cols = Math.max(3, Math.ceil(widthM / resolution));
   const rows = Math.max(3, Math.ceil(heightM / resolution));
   if (cols * rows > 60000) throw new Error("The local A* fallback would be too large for this area. Move the waypoints closer together or increase the resolution.");
-  const buildingXY = buildings.map(b => b.ring.map(p => llToXY(p[0], p[1], origin)));
+  const buildingXY = buildings.map(b => ({
+    kind: SEMANTIC_ZONE_STYLE[b.kind] ? b.kind : "building",
+    ring: b.ring.map(p => llToXY(p[0], p[1], origin))
+  }));
   function cellCenter(row, col) {
     return [minXY[0] + (col + 0.5) * resolution, minXY[1] + (row + 0.5) * resolution];
   }
@@ -1904,24 +1953,33 @@ function localAstarAroundBuildings(start, end, buildings, bufferM, preferredReso
     const xy = llToXY(p[0], p[1], origin);
     return [Math.max(0, Math.min(rows - 1, Math.floor((xy[1] - minXY[1]) / resolution))), Math.max(0, Math.min(cols - 1, Math.floor((xy[0] - minXY[0]) / resolution)))];
   }
-  const grid = Array.from({length: rows}, () => Array(cols).fill(false));
+  const grid = Array.from(
+    {length: rows},
+    () => Array(cols).fill(semanticCosts ? landcoverCost.pastizal : false)
+  );
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       const center = cellCenter(r, c);
-      for (const poly of buildingXY) {
-        if (pointInPolygonXY(center, poly)) { grid[r][c] = true; break; }
-        for (let i = 0; i < poly.length - 1; i++) {
-          if (distancePointSegmentXY(center, poly[i], poly[i + 1]) <= bufferM) { grid[r][c] = true; break; }
+      for (const zone of buildingXY) {
+        const style = SEMANTIC_ZONE_STYLE[zone.kind];
+        let inside = pointInPolygonXY(center, zone.ring);
+        for (let i = 0; !inside && i < zone.ring.length - 1; i++) {
+          if (distancePointSegmentXY(center, zone.ring[i], zone.ring[i + 1]) <= bufferM) inside = true;
         }
-        if (grid[r][c]) break;
+        if (!inside) continue;
+        if (!semanticCosts || !Number.isFinite(style.cost)) {
+          grid[r][c] = semanticCosts ? Infinity : true;
+          break;
+        }
+        grid[r][c] = Math.max(grid[r][c], style.cost);
       }
     }
   }
   const sCell = nearestFreeCell(grid, llToCell(start));
   const gCell = nearestFreeCell(grid, llToCell(end));
-  if (!sCell || !gCell) throw new Error("The start or destination is inside a forbidden zone or too close to it.");
+  if (!sCell || !gCell) throw new Error("The start or destination is inside a blocked semantic zone or too close to it.");
   const path = astarGrid(grid, sCell, gCell);
-  if (!path.length) throw new Error("No local A* fallback avoiding forbidden zones was found.");
+  if (!path.length) throw new Error("No local A* route accounting for semantic zones was found.");
   return path.map(([r, c]) => {
     const xy = cellCenter(r, c);
     return xyToLL(xy[0], xy[1], origin);
@@ -2015,7 +2073,7 @@ async function generateOsmRoute(ids, interval) {
       const allCandidatePoints = candidateRoutes.flatMap(candidate => candidate.points);
       const bbox = expandBBoxMeters(routeBBox([start, end, ...allCandidatePoints]), Math.max(30, maxSnap + buildingBuffer + 10));
       await loadingStep(`Checking manual forbidden zones for ${ids[i]} → ${ids[i + 1]}…`);
-      segmentBuildings = manualObstaclesForBbox(bbox);
+      segmentBuildings = manualHardObstaclesForBbox(bbox);
       if (segmentBuildings.length) snapWarnings.push(`${segmentBuildings.length} manual forbidden zone(s) applied in ${ids[i]} → ${ids[i + 1]}.`);
       if (!segmentBuildings.length && !unsafeFallback) {
         throw new Error(`No manual forbidden zones are available for ${ids[i]} → ${ids[i + 1]}. Draw a zone around the obstacle or change the unsafe route policy.`);
@@ -2078,7 +2136,18 @@ async function generateOsmRoute(ids, interval) {
 
   return {points: fullRoute, distance_m: distancePoints(fullRoute), profile, endpointMode, warnings: snapWarnings, zones: finalZones.length, alternativesUsed, astarFallbacks, quickMode: !avoidBuildings};
 }
-function localCostSegment(a, b, interval, startType, endType) {
+function localCostSegment(a, b, interval, startType, endType, semanticZones) {
+  if (semanticZones.length) {
+    const astar = localAstarAroundBuildings(
+      a,
+      b,
+      semanticZones,
+      1.5,
+      Math.max(1.5, interval / 2),
+      true
+    );
+    return interpolateRoute([a, ...astar, b], interval);
+  }
   const direct = interpolateRoute([a, b], interval);
   const cost = ((landcoverCost[startType] || 10) + (landcoverCost[endType] || 10)) / 2;
   if (cost < 30) return direct;
@@ -2092,14 +2161,22 @@ function localCostSegment(a, b, interval, startType, endType) {
 }
 function generateCostRoute(ids, interval) {
   const route = [];
+  const usedZoneIds = new Set();
   for (let i = 0; i < ids.length - 1; i++) {
     const aId = ids[i], bId = ids[i + 1];
     const a = poiById(aId), b = poiById(bId);
     const at = featureById(aId).properties.landcover;
     const bt = featureById(bId).properties.landcover;
-    appendRoutePoints(route, localCostSegment(a, b, interval, at, bt));
+    const searchBox = expandBBoxMeters(routeBBox([a, b]), 50);
+    const zones = manualObstaclesForBbox(searchBox);
+    zones.forEach(zone => usedZoneIds.add(zone.id));
+    appendRoutePoints(route, localCostSegment(a, b, interval, at, bt, zones));
   }
-  return {points: route, distance_m: distancePoints(route)};
+  return {
+    points: route,
+    distance_m: distancePoints(route),
+    semanticZones: usedZoneIds.size
+  };
 }
 async function generateMissionRoute() {
   if (missionStops.length < 2) throw new Error("Add at least two waypoints to build a mission route.");
@@ -2124,6 +2201,13 @@ async function generateMissionRoute() {
     ? (result.endpointMode === "exact_avoid" ? "osm exact + A*" : result.endpointMode === "exact_direct" ? "osm exact-direct" : "osm snap")
     : strategy;
   const details = [`Mission route generated with ${modeText}.`];
+  if (strategy === "cost") {
+    details.push(
+      result.semanticZones
+        ? `${result.semanticZones} semantic zone(s) included in the local costmap.`
+        : "No semantic zones intersected the local planning area."
+    );
+  }
   if (strategy === "osm" && result.quickMode) details.push("Fast OSM mode: snapped endpoints, no forbidden-zone validation.");
   if (result.warnings && result.warnings.length) details.push(...result.warnings);
   const warningLines = (result.warnings || []).filter(line => !/manual forbidden zone\(s\) applied|manual forbidden zone\(s\) checked|exact endpoints/i.test(line));
@@ -2131,7 +2215,9 @@ async function generateMissionRoute() {
   const summary = hasWarnings
     ? "Route generated with warnings. Some waypoints were snapped or fallback routing was used. Open route details for more information."
     : result.zones
-      ? `Route generated successfully while avoiding ${result.zones} manual forbidden zone${result.zones === 1 ? "" : "s"}.`
+      ? `Route generated successfully while avoiding ${result.zones} blocked semantic zone${result.zones === 1 ? "" : "s"}.`
+      : result.semanticZones
+        ? `Route generated successfully with ${result.semanticZones} semantic zone${result.semanticZones === 1 ? "" : "s"} in the costmap.`
       : "Route generated successfully.";
   return {waypoints: toWaypoints(result.points), rows: modeText, strategy, message: summary, details, statusClass: hasWarnings ? "warn" : "ok", detailTitle: "Route details"};
 }
@@ -2545,13 +2631,15 @@ function updateVisibleMissionSettings() {
   const obstacleHint = $("obstacleHint");
   if (obstacleHint) {
     if (s.strictMode) {
-      obstacleHint.textContent = "Strict mode blocks unsafe routes that cross manual forbidden zones.";
+      obstacleHint.textContent = "Strict mode blocks unsafe routes that cross mapped buildings or water.";
     } else if (s.preset === "balanced") {
-      obstacleHint.textContent = "Manual forbidden zones are checked during route generation.";
+      obstacleHint.textContent = "Mapped buildings and water are checked during route generation.";
     } else if (s.usesOsm) {
-      obstacleHint.textContent = "Fast mode shows manual zones on the map, but obstacle avoidance is active in Balanced or Strict.";
+      obstacleHint.textContent = "Fast mode shows semantic zones; building and water avoidance is active in Balanced or Strict.";
     } else {
-      obstacleHint.textContent = "Manual zones stay saved here; use OSM Balanced or Strict to validate against them.";
+      obstacleHint.textContent = s.usesCost
+        ? "Local A* blocks buildings and water and penalizes forest."
+        : "Semantic zones stay saved here; choose Local costmap A* to account for forest.";
     }
   }
   updateLegend();
@@ -2665,6 +2753,9 @@ function bindEvents() {
     if (el) el.addEventListener("change", () => { updateVisibleMissionSettings(); if (appMode === "mission") scheduleGenerate("OSM safety setting changed."); });
   }
   if ($("drawManualObstacleBtn")) $("drawManualObstacleBtn").addEventListener("click", startManualObstacleDraw);
+  if ($("manualObstacleKind")) $("manualObstacleKind").addEventListener("change", () => {
+    if (manualObstacleDrawMode) drawManualObstacles();
+  });
   if ($("finishManualObstacleBtn")) $("finishManualObstacleBtn").addEventListener("click", finishManualObstacleDraw);
   if ($("cancelManualObstacleBtn")) $("cancelManualObstacleBtn").addEventListener("click", cancelManualObstacleDraw);
   if ($("clearManualObstacleBtn")) $("clearManualObstacleBtn").addEventListener("click", clearManualObstacles);

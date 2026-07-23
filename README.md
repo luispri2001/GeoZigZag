@@ -6,10 +6,11 @@ robotics. It combines:
 - dense boustrophedon coverage inside a selected field; and
 - sparse semantic georouting between ordered geographic targets.
 
-The browser supports map-based editing, explicit route generation, manual
-forbidden zones, direct/local-cost/OSRM routing, visible success and warning
-states, and CSV/YAML export. The Python package provides the deterministic
-implementation used by the tests, benchmark, figures, tables, and paper.
+The browser supports map-based editing, explicit route generation, manually
+drawn building/water/forest zones, direct/local-cost/OSRM routing, visible
+success and warning states, and CSV/YAML export. The Python package provides
+the deterministic implementation used by the tests, benchmark, figures,
+tables, and paper.
 
 ## Scope
 
@@ -64,8 +65,24 @@ http://127.0.0.1:8000/?mode=mission&strategy=osm&preset=balanced
 
 Map tiles and live OSRM routing need internet access. Direct and local
 cost-aware routing do not. Editing a field, target list, spacing, route mode, or
-forbidden zone marks the existing route as pending and disables stale exports;
+semantic zone marks the existing route as pending and disables stale exports;
 press **Generate route** to create a new result.
+
+### Account for buildings, water, and forest
+
+In **Mission route**, open **Semantic zones**, choose a zone type, press
+**Draw zone**, and outline the feature on the map:
+
+- buildings and water are impassable;
+- forest has a high traversal cost, so local A* prefers a reasonable detour but
+  can cross it when no practical alternative exists.
+
+Choose **Local costmap A*** and press **Generate route** to apply all three
+types. OSM **Balanced** and **Strict** validate buildings and water as hard
+obstacles; forest cost is local to the A* strategy because the public OSRM
+service does not accept this custom cost layer. Zones are stored in the
+browser. Existing saved forbidden zones remain compatible and are interpreted
+as buildings.
 
 ## Reproduce the paper results
 
