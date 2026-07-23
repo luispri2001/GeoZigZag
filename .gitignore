@@ -21,6 +21,7 @@ playwright-report/
 
 # Downloaded map/building tiles and local browser-side caches
 web/osm_buildings_cache/
+web/osm_semantic_cache/
 web/**/tile_*.json
 *.mbtiles
 *.tiles

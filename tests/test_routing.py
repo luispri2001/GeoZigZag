@@ -110,6 +110,41 @@ class RoutingTests(unittest.TestCase):
         )
         self.assertEqual(forbidden_zone_intersections(route, [zone]), 0)
 
+    def test_scrub_semantic_zone_adds_a_traversal_penalty(self) -> None:
+        zone = [
+            (42.3098, -6.2048),
+            (42.3102, -6.2048),
+            (42.3102, -6.2044),
+            (42.3098, -6.2044),
+        ]
+        direct = generate_cost_route(
+            self.geojson,
+            ["water_1", "arbustivo_2"],
+            resolution_m=2.0,
+        )
+        scrub = generate_cost_route(
+            self.geojson,
+            ["water_1", "arbustivo_2"],
+            resolution_m=2.0,
+            semantic_zones=[{"kind": "scrub", "ring": zone}],
+        )
+        self.assertGreaterEqual(len(scrub), len(direct))
+
+    def test_scrub_semantic_zone_has_a_finite_cost(self) -> None:
+        zone = [
+            (42.3098, -6.2048),
+            (42.3102, -6.2048),
+            (42.3102, -6.2044),
+            (42.3098, -6.2044),
+        ]
+        route = generate_cost_route(
+            self.geojson,
+            ["water_1", "arbustivo_2"],
+            resolution_m=2.0,
+            semantic_zones=[{"kind": "scrub", "ring": zone}],
+        )
+        self.assertGreater(len(route), 2)
+
     def test_unknown_semantic_zone_kind_is_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "Unknown semantic zone kind"):
             generate_cost_route(

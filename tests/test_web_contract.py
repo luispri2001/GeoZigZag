@@ -17,11 +17,23 @@ class WebContractTests(unittest.TestCase):
             self.assertIn(text, self.source)
 
     def test_manual_semantic_zones_are_available_to_local_astar(self) -> None:
-        for kind in ("building", "water", "forest"):
+        for kind in ("building", "water", "forest", "scrub"):
             self.assertIn(f'<option value="{kind}">', self.source)
         self.assertIn("SEMANTIC_ZONE_STYLE", self.source)
         self.assertIn("semanticCosts", self.source)
         self.assertNotIn("Automatic building-footprint safety", self.source)
+
+    def test_public_osm_zones_create_resource_waypoints(self) -> None:
+        for tag in (
+            '["building"]',
+            '["natural"="water"]',
+            '["landuse"="forest"]',
+            '["natural"="scrub"]',
+        ):
+            self.assertIn(tag, self.source)
+        self.assertIn("loadVisiblePublicSemanticZones", self.source)
+        self.assertIn("rebuildPublicSemanticWaypoints", self.source)
+        self.assertIn('["forest", "scrub"]', self.source)
 
 
 if __name__ == "__main__":

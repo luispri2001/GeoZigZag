@@ -49,18 +49,29 @@ require an explicit in-polygon connector planner.
 - semantic-cost A* on an 8-connected local grid; and
 - live or cached OSRM adapters with snap-distance validation.
 
-Manually drawn semantic polygons use a deliberately small policy:
+Manual and downloaded OpenStreetMap semantic polygons use a deliberately small
+policy:
 
 | Zone | Local A* policy | OSM Balanced/Strict |
 | --- | --- | --- |
 | Building | impassable | intersection validation/local fallback |
 | Water | impassable | intersection validation/local fallback |
 | Forest | high traversal cost (`80`) | visual context only |
+| Scrub | medium traversal cost (`45`) | visual context only |
 
 The base local-grid cost is `10`. Forest is penalized rather than universally
 blocked because mapped woodland may include usable tracks or sparse areas.
 This is a planning assumption, not a claim of measured traversability.
 Previously stored untyped polygons are loaded as buildings.
+
+The web application requests `building=*`, `natural=water`,
+`landuse=reservoir`, `natural=wood`, `landuse=forest`, and `natural=scrub`
+through the local `/api/osm/semantic` proxy, with public Overpass as a fallback.
+Queries are limited to 9 km². Large OSM relations are clipped to the requested
+bounds before display, costmap use, area measurement, or centroid calculation.
+Forest and scrub components above the UI threshold create selectable resource
+waypoints at their clipped polygon centers. Public targets are never added to a
+mission without the user's selection.
 
 `metrics.py` counts polyline heading changes of at least 30 degrees. This is not
 a dynamically feasible steering or headland-turn metric.

@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Preload OSM buildings locally for GeoZigzag Studio.
+"""Preload OSM semantic polygons locally for GeoZigzag Studio.
 
-This script downloads OSM building footprints from Overpass and stores them as
-small tile JSON files in web/osm_buildings_cache so the HTML can validate and
-draw local buildings without waiting for Overpass every time.
+The historical filename is kept for compatibility. The downloader now stores
+buildings, water, forest and scrub polygons from Overpass.
 
 Examples:
   # Preload the current demo mission area and then serve the folder:
@@ -30,20 +29,22 @@ from dataclasses import dataclass
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Iterable, Any
+from urllib.parse import parse_qs, urlparse
 
 EARTH_RADIUS_M = 6_378_137.0
 BUILDING_TILE_DEG = 0.0012  # Must match HTML constant.
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_OUT_DIR = REPO_ROOT / "web" / "osm_buildings_cache"
+DEFAULT_OUT_DIR = REPO_ROOT / "web" / "osm_semantic_cache"
 ENDPOINTS = [
     "https://overpass-api.de/api/interpreter",
+    "https://overpass.private.coffee/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
     "https://overpass.openstreetmap.ru/api/interpreter",
     "https://overpass.osm.ch/api/interpreter",
     # z.overpass-api.de often returns HTTP 406 for some clients/queries; keep it last.
     "https://z.overpass-api.de/api/interpreter",
 ]
-USER_AGENT = "GeoZigzagBuildingPreloader/1.2 (+local route validation)"
+USER_AGENT = "GeoZigzagSemanticPreloader/2.0 (+local route planning)"
 
 # Same demo POIs as the HTML.
 POIS: dict[str, tuple[float, float]] = {
@@ -153,6 +154,16 @@ def overpass_query(bbox: BBox, server_timeout: int = 60) -> str:
         "(\n"
         f"  way[\"building\"]({b.south:.8f},{b.west:.8f},{b.north:.8f},{b.east:.8f});\n"
         f"  relation[\"building\"]({b.south:.8f},{b.west:.8f},{b.north:.8f},{b.east:.8f});\n"
+        f"  way[\"natural\"=\"water\"]({b.south:.8f},{b.west:.8f},{b.north:.8f},{b.east:.8f});\n"
+        f"  relation[\"natural\"=\"water\"]({b.south:.8f},{b.west:.8f},{b.north:.8f},{b.east:.8f});\n"
+        f"  way[\"landuse\"=\"reservoir\"]({b.south:.8f},{b.west:.8f},{b.north:.8f},{b.east:.8f});\n"
+        f"  relation[\"landuse\"=\"reservoir\"]({b.south:.8f},{b.west:.8f},{b.north:.8f},{b.east:.8f});\n"
+        f"  way[\"natural\"=\"wood\"]({b.south:.8f},{b.west:.8f},{b.north:.8f},{b.east:.8f});\n"
+        f"  relation[\"natural\"=\"wood\"]({b.south:.8f},{b.west:.8f},{b.north:.8f},{b.east:.8f});\n"
+        f"  way[\"landuse\"=\"forest\"]({b.south:.8f},{b.west:.8f},{b.north:.8f},{b.east:.8f});\n"
+        f"  relation[\"landuse\"=\"forest\"]({b.south:.8f},{b.west:.8f},{b.north:.8f},{b.east:.8f});\n"
+        f"  way[\"natural\"=\"scrub\"]({b.south:.8f},{b.west:.8f},{b.north:.8f},{b.east:.8f});\n"
+        f"  relation[\"natural\"=\"scrub\"]({b.south:.8f},{b.west:.8f},{b.north:.8f},{b.east:.8f});\n"
         ");\n"
         "out geom;"
     )
@@ -209,6 +220,7 @@ def post_overpass(endpoint: str, query: str, timeout: int) -> dict[str, Any]:
             errors.append(f"{label}: {_read_http_error(exc)}")
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
             errors.append(f"{label}: {exc}")
+            break
     raise RuntimeError("; ".join(errors))
 
 
@@ -266,29 +278,133 @@ def bbox_overlap(a: dict[str, float], b: BBox) -> bool:
     return not (a["east"] < b.west or a["west"] > b.east or a["north"] < b.south or a["south"] > b.north)
 
 
-def parse_buildings(data: dict[str, Any], tile_bbox: BBox) -> list[dict[str, Any]]:
-    buildings: list[dict[str, Any]] = []
+def semantic_kind(tags: dict[str, Any]) -> str | None:
+    if tags.get("building"):
+        return "building"
+    if tags.get("natural") == "water" or tags.get("landuse") == "reservoir":
+        return "water"
+    if tags.get("natural") == "wood" or tags.get("landuse") == "forest":
+        return "forest"
+    if tags.get("natural") == "scrub":
+        return "scrub"
+    return None
+
+
+def clip_ring_to_bbox(ring: list[list[float]], bbox: BBox) -> list[list[float]]:
+    points = close_ring([(point[0], point[1]) for point in ring])
+    points = points[:-1] if points else []
+
+    def clip(inside: Any, intersect: Any) -> None:
+        nonlocal points
+        if not points:
+            return
+        output: list[list[float]] = []
+        previous = points[-1]
+        for current in points:
+            current_inside = inside(current)
+            previous_inside = inside(previous)
+            if current_inside:
+                if not previous_inside:
+                    output.append(intersect(previous, current))
+                output.append(current)
+            elif previous_inside:
+                output.append(intersect(previous, current))
+            previous = current
+        points = output
+
+    def at_lon(first: list[float], second: list[float], lon: float) -> list[float]:
+        ratio = (lon - first[1]) / ((second[1] - first[1]) or 1e-15)
+        return [first[0] + (second[0] - first[0]) * ratio, lon]
+
+    def at_lat(first: list[float], second: list[float], lat: float) -> list[float]:
+        ratio = (lat - first[0]) / ((second[0] - first[0]) or 1e-15)
+        return [lat, first[1] + (second[1] - first[1]) * ratio]
+
+    clip(lambda point: point[1] >= bbox.west, lambda a, b: at_lon(a, b, bbox.west))
+    clip(lambda point: point[1] <= bbox.east, lambda a, b: at_lon(a, b, bbox.east))
+    clip(lambda point: point[0] >= bbox.south, lambda a, b: at_lat(a, b, bbox.south))
+    clip(lambda point: point[0] <= bbox.north, lambda a, b: at_lat(a, b, bbox.north))
+    return close_ring([(point[0], point[1]) for point in points])
+
+
+def polygon_area_center(ring: list[list[float]]) -> tuple[float, list[float]]:
+    """Return approximate metric area and an area-weighted WGS84 center."""
+    points = ring[:-1] if len(ring) > 1 and same_ll(ring[0], ring[-1]) else ring
+    origin_lat = sum(point[0] for point in points) / len(points)
+    origin_lon = sum(point[1] for point in points) / len(points)
+    scale = math.cos(math.radians(origin_lat))
+    xy = [
+        (
+            math.radians(lon - origin_lon) * EARTH_RADIUS_M * scale,
+            math.radians(lat - origin_lat) * EARTH_RADIUS_M,
+        )
+        for lat, lon in points
+    ]
+    twice_area = 0.0
+    center_x = 0.0
+    center_y = 0.0
+    for first, second in zip(xy, xy[1:] + xy[:1]):
+        cross = first[0] * second[1] - second[0] * first[1]
+        twice_area += cross
+        center_x += (first[0] + second[0]) * cross
+        center_y += (first[1] + second[1]) * cross
+    area_m2 = abs(twice_area) / 2.0
+    if abs(twice_area) > 1e-9:
+        center_x /= 3.0 * twice_area
+        center_y /= 3.0 * twice_area
+    else:
+        center_x = sum(point[0] for point in xy) / len(xy)
+        center_y = sum(point[1] for point in xy) / len(xy)
+    center = [
+        origin_lat + math.degrees(center_y / EARTH_RADIUS_M),
+        origin_lon + math.degrees(center_x / (EARTH_RADIUS_M * max(scale, 1e-9))),
+    ]
+    return area_m2, center
+
+
+def parse_semantic_features(data: dict[str, Any], tile_bbox: BBox) -> list[dict[str, Any]]:
+    features: list[dict[str, Any]] = []
     seen: set[str] = set()
 
-    def add_building(prefix: str, ring: list[list[float]]) -> None:
+    def add_feature(prefix: str, tags: dict[str, Any], ring: list[list[float]]) -> None:
+        ring = clip_ring_to_bbox(ring, tile_bbox)
         if not ring:
+            return
+        kind = semantic_kind(tags)
+        if kind is None:
             return
         bbox = route_bbox(ring)
         if not bbox_overlap(bbox, tile_bbox):
             return
-        key = prefix + ":" + "|".join(f"{p[0]:.7f},{p[1]:.7f}" for p in ring[:4])
+        key = f"{prefix}/{kind}:" + "|".join(f"{p[0]:.7f},{p[1]:.7f}" for p in ring[:4])
         if key in seen:
             return
         seen.add(key)
-        buildings.append({"id": key, "ring": ring, "bbox": bbox})
+        area_m2, center = polygon_area_center(ring)
+        if area_m2 < 1.0:
+            return
+        features.append(
+            {
+                "id": key,
+                "source": "OpenStreetMap",
+                "kind": kind,
+                "name": tags.get("name"),
+                "ring": ring,
+                "bbox": bbox,
+                "center": center,
+                "areaM2": area_m2,
+            }
+        )
 
     for el in data.get("elements", []):
-        if el.get("type") == "way" and el.get("tags", {}).get("building") and isinstance(el.get("geometry"), list):
+        tags = el.get("tags", {})
+        if el.get("type") == "way" and semantic_kind(tags) and isinstance(el.get("geometry"), list):
             ring = close_ring([(float(p["lat"]), float(p["lon"])) for p in el["geometry"] if "lat" in p and "lon" in p])
-            add_building(f"way/{el.get('id')}", ring)
+            add_feature(f"way/{el.get('id')}", tags, ring)
 
     for el in data.get("elements", []):
-        if el.get("type") != "relation" or not el.get("tags", {}).get("building"):
+        tags = el.get("tags", {})
+        if el.get("type") != "relation" or semantic_kind(tags) is None:
             continue
         fragments: list[list[list[float]]] = []
         for m in el.get("members", []) or []:
@@ -301,9 +417,18 @@ def parse_buildings(data: dict[str, Any], tile_bbox: BBox) -> list[dict[str, Any
             if len(frag) >= 2:
                 fragments.append(frag)
         for ring in join_outer_fragments(fragments):
-            add_building(f"relation/{el.get('id')}", ring)
+            add_feature(f"relation/{el.get('id')}", tags, ring)
 
-    return buildings
+    return features
+
+
+def parse_buildings(data: dict[str, Any], tile_bbox: BBox) -> list[dict[str, Any]]:
+    """Compatibility helper for callers that still need only buildings."""
+    return [
+        feature
+        for feature in parse_semantic_features(data, tile_bbox)
+        if feature["kind"] == "building"
+    ]
 
 
 def _try_download_bbox(bbox: BBox, timeout: int, retries: int, sleep_s: float, label: str = "bbox") -> list[dict[str, Any]]:
@@ -314,7 +439,7 @@ def _try_download_bbox(bbox: BBox, timeout: int, retries: int, sleep_s: float, l
             try:
                 print(f"    Overpass {label}: {endpoint}", flush=True)
                 data = post_overpass(endpoint, query, timeout=timeout)
-                return parse_buildings(data, bbox)
+                return parse_semantic_features(data, bbox)
             except Exception as exc:
                 last_error = f"{endpoint}: {exc}"
                 print(f"      failed: {last_error[:260]}", flush=True)
@@ -373,13 +498,57 @@ def download_tile(tile_key_: str, tile_bbox: BBox, timeout: int, retries: int, s
 
 def write_manifest(out_dir: Path, tile_records: list[dict[str, Any]], bbox: BBox) -> None:
     manifest = {
-        "schema": "geozigzag-osm-buildings-cache-v1",
+        "schema": "geozigzag-osm-semantic-cache-v2",
         "tileDeg": BUILDING_TILE_DEG,
         "savedAt": int(time.time() * 1000),
         "bbox": bbox.as_dict(),
         "tiles": tile_records,
     }
     (out_dir / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def cached_features(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    return list(payload.get("features", payload.get("buildings", [])))
+
+
+def kind_counts(features: Iterable[dict[str, Any]]) -> dict[str, int]:
+    counts = {"building": 0, "water": 0, "forest": 0, "scrub": 0}
+    for feature in features:
+        kind = str(feature.get("kind", "building"))
+        if kind in counts:
+            counts[kind] += 1
+    return counts
+
+
+def read_cached_bbox(out_dir: Path, bbox: BBox) -> list[dict[str, Any]] | None:
+    """Return a complete cached bbox, or ``None`` when any tile is missing."""
+    collected: dict[str, dict[str, Any]] = {}
+    for key, _ in tiles_for_bbox(bbox):
+        path = out_dir / tile_filename(key)
+        if not path.exists():
+            return None
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        for feature in cached_features(payload):
+            if not bbox_overlap(feature.get("bbox", {}), bbox):
+                continue
+            clipped = clip_ring_to_bbox(feature.get("ring", []), bbox)
+            if not clipped:
+                continue
+            area_m2, center = polygon_area_center(clipped)
+            if area_m2 < 1.0:
+                continue
+            normalized = {
+                **feature,
+                "ring": clipped,
+                "bbox": route_bbox(clipped),
+                "center": center,
+                "areaM2": area_m2,
+            }
+            collected[str(feature.get("id"))] = normalized
+    return list(collected.values())
 
 
 def preload(args: argparse.Namespace) -> None:
@@ -407,7 +576,7 @@ def preload(args: argparse.Namespace) -> None:
     print(f"Tiles: {len(tiles)} · output: {out_dir.resolve()}")
 
     records: list[dict[str, Any]] = []
-    total_buildings = 0
+    total_features = 0
 
     if not args.per_tile:
         missing_tiles: list[tuple[str, BBox, Path]] = []
@@ -416,10 +585,10 @@ def preload(args: argparse.Namespace) -> None:
             if out_file.exists() and not args.force:
                 try:
                     cached = json.loads(out_file.read_text(encoding="utf-8"))
-                    count = len(cached.get("buildings", []))
-                    print(f"cached {key}: {count} buildings")
-                    total_buildings += count
-                    records.append({"key": key, "file": out_file.name, "bbox": tile_bbox.as_dict(), "buildings": count})
+                    count = len(cached_features(cached))
+                    print(f"cached {key}: {count} semantic polygons")
+                    total_features += count
+                    records.append({"key": key, "file": out_file.name, "bbox": tile_bbox.as_dict(), "features": count, "kinds": kind_counts(cached_features(cached))})
                     continue
                 except Exception:
                     pass
@@ -432,33 +601,33 @@ def preload(args: argparse.Namespace) -> None:
                 north=max(t[1].north for t in missing_tiles),
                 east=max(t[1].east for t in missing_tiles),
             )
-            print(f"Downloading buildings once for missing zone covering {len(missing_tiles)} tiles ...", flush=True)
+            print(f"Downloading semantic polygons once for a zone covering {len(missing_tiles)} tiles ...", flush=True)
             all_buildings = download_bbox_robust(missing_bbox, timeout=args.timeout, retries=args.retries, sleep_s=args.sleep)
-            print(f"Downloaded {len(all_buildings)} unique building footprints; writing tiles ...", flush=True)
+            print(f"Downloaded {len(all_buildings)} unique semantic polygons; writing tiles ...", flush=True)
             for i, (key, tile_bbox, out_file) in enumerate(missing_tiles, start=1):
                 tile_buildings = [b for b in all_buildings if bbox_overlap(b.get("bbox", {}), tile_bbox)]
                 payload = {
-                    "schema": "geozigzag-osm-buildings-tile-v1",
+                    "schema": "geozigzag-osm-semantic-tile-v2",
                     "savedAt": int(time.time() * 1000),
                     "tileKey": key,
                     "tileDeg": BUILDING_TILE_DEG,
                     "bbox": tile_bbox.as_dict(),
-                    "buildings": tile_buildings,
+                    "features": tile_buildings,
                 }
                 out_file.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-                total_buildings += len(tile_buildings)
-                records.append({"key": key, "file": out_file.name, "bbox": tile_bbox.as_dict(), "buildings": len(tile_buildings)})
-                print(f"[{i:03d}/{len(missing_tiles):03d}] wrote {key}: {len(tile_buildings)} buildings")
+                total_features += len(tile_buildings)
+                records.append({"key": key, "file": out_file.name, "bbox": tile_bbox.as_dict(), "features": len(tile_buildings), "kinds": kind_counts(tile_buildings)})
+                print(f"[{i:03d}/{len(missing_tiles):03d}] wrote {key}: {len(tile_buildings)} semantic polygons")
     else:
         for i, (key, tile_bbox) in enumerate(tiles, start=1):
             out_file = out_dir / tile_filename(key)
             if out_file.exists() and not args.force:
                 try:
                     cached = json.loads(out_file.read_text(encoding="utf-8"))
-                    count = len(cached.get("buildings", []))
-                    print(f"[{i:03d}/{len(tiles):03d}] cached {key}: {count} buildings")
-                    total_buildings += count
-                    records.append({"key": key, "file": out_file.name, "bbox": tile_bbox.as_dict(), "buildings": count})
+                    count = len(cached_features(cached))
+                    print(f"[{i:03d}/{len(tiles):03d}] cached {key}: {count} semantic polygons")
+                    total_features += count
+                    records.append({"key": key, "file": out_file.name, "bbox": tile_bbox.as_dict(), "features": count, "kinds": kind_counts(cached_features(cached))})
                     continue
                 except Exception:
                     pass
@@ -466,35 +635,86 @@ def preload(args: argparse.Namespace) -> None:
             print(f"[{i:03d}/{len(tiles):03d}] downloading {key} ...", flush=True)
             buildings = download_tile(key, tile_bbox, timeout=args.timeout, retries=args.retries, sleep_s=args.sleep)
             payload = {
-                "schema": "geozigzag-osm-buildings-tile-v1",
+                "schema": "geozigzag-osm-semantic-tile-v2",
                 "savedAt": int(time.time() * 1000),
                 "tileKey": key,
                 "tileDeg": BUILDING_TILE_DEG,
                 "bbox": tile_bbox.as_dict(),
-                "buildings": buildings,
+                "features": buildings,
             }
             out_file.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-            total_buildings += len(buildings)
-            records.append({"key": key, "file": out_file.name, "bbox": tile_bbox.as_dict(), "buildings": len(buildings)})
+            total_features += len(buildings)
+            records.append({"key": key, "file": out_file.name, "bbox": tile_bbox.as_dict(), "features": len(buildings), "kinds": kind_counts(buildings)})
             time.sleep(args.sleep)
 
     write_manifest(out_dir, records, bbox)
-    print(f"Done: {total_buildings} building footprints across {len(tiles)} tiles.")
-    if total_buildings == 0:
-        print("\nWARNING: Overpass answered successfully, but no building=* footprints were found in this bbox.")
-        print("This usually means one of these things:")
-        print("  1) the bbox is too small or not centered on the houses you want to avoid;")
-        print("  2) the houses are visible in satellite imagery but not mapped as building=* in OSM;")
-        print("  3) you need a larger buffer, e.g. --buffer-m 300 or --buffer-m 500.")
-        print("Try for example:")
-        print("  python3 scripts/osm_buildings_preload.py --poi-ids water_1 arbustivo_2 water_2 --buffer-m 500 --force --serve")
-        print("Or use a manual bbox: --bbox SOUTH WEST NORTH EAST --force --serve\n")
+    print(f"Done: {total_features} tile feature references across {len(tiles)} tiles.")
+    if total_features == 0:
+        print("\nWARNING: Overpass answered successfully, but no supported semantic polygons were found.")
+        print("Zoom out slightly or confirm that the features are mapped in OpenStreetMap.")
     if args.serve:
         serve(args.port, auto_port=args.auto_port, max_port_tries=args.max_port_tries)
 
 
+class SemanticRequestHandler(SimpleHTTPRequestHandler):
+    """Serve static files and proxy bounded semantic Overpass requests."""
+
+    api_max_area_m2 = 9_000_000.0
+
+    def _json_response(self, status: int, payload: dict[str, Any]) -> None:
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self) -> None:
+        parsed = urlparse(self.path)
+        if parsed.path != "/api/osm/semantic":
+            super().do_GET()
+            return
+        try:
+            query = parse_qs(parsed.query)
+            bbox = BBox(
+                south=float(query["south"][0]),
+                west=float(query["west"][0]),
+                north=float(query["north"][0]),
+                east=float(query["east"][0]),
+            )
+            if bbox.south >= bbox.north or bbox.west >= bbox.east:
+                raise ValueError("Invalid bounding-box order.")
+            mid_lat = (bbox.south + bbox.north) / 2.0
+            width = (bbox.east - bbox.west) * 111_320.0 * max(
+                0.2, math.cos(math.radians(mid_lat))
+            )
+            height = (bbox.north - bbox.south) * 111_320.0
+            if width * height > self.api_max_area_m2:
+                raise ValueError("Requested area exceeds the 9 km² safety limit.")
+            features = read_cached_bbox(DEFAULT_OUT_DIR, bbox)
+            source = "local semantic cache"
+            if features is None:
+                features = download_bbox_robust(bbox, timeout=25, retries=0, sleep_s=0.0)
+                source = "OpenStreetMap/Overpass"
+            self._json_response(
+                200,
+                {
+                    "schema": "geozigzag-osm-semantic-response-v1",
+                    "source": source,
+                    "bbox": bbox.as_dict(),
+                    "features": features,
+                    "counts": kind_counts(features),
+                },
+            )
+        except (KeyError, IndexError, TypeError, ValueError) as exc:
+            self._json_response(400, {"error": str(exc)})
+        except Exception as exc:
+            self._json_response(502, {"error": f"Overpass download failed: {exc}"})
+
+
 def serve(port: int, auto_port: bool = True, max_port_tries: int = 20) -> None:
-    handler = partial(SimpleHTTPRequestHandler, directory=str(REPO_ROOT))
+    handler = partial(SemanticRequestHandler, directory=str(REPO_ROOT))
     last_error: OSError | None = None
     selected_port = port
     tries = max(1, int(max_port_tries)) if auto_port else 1
@@ -514,6 +734,7 @@ def serve(port: int, auto_port: bool = True, max_port_tries: int = 20) -> None:
 
     print("\nLocal server started.")
     print(f"Open: http://localhost:{selected_port}/web/index.html")
+    print("The same server exposes /api/osm/semantic for the public-data button.")
     print("Stop with Ctrl+C.\n")
     try:
         server.serve_forever()
@@ -524,7 +745,9 @@ def serve(port: int, auto_port: bool = True, max_port_tries: int = 20) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Download OSM building footprints for GeoZigzag local route validation.")
+    parser = argparse.ArgumentParser(
+        description="Download OSM building, water, forest and scrub polygons for GeoZigzag."
+    )
     source = parser.add_mutually_exclusive_group()
     source.add_argument("--bbox", nargs=4, metavar=("SOUTH", "WEST", "NORTH", "EAST"), help="Bounding box to download.")
     source.add_argument("--center", nargs=2, metavar=("LAT", "LON"), help="Center point. Use with --radius-m.")
@@ -532,7 +755,11 @@ def build_parser() -> argparse.ArgumentParser:
     source.add_argument("--poi-ids", nargs="+", help="Built-in demo POI ids, e.g. water_1 arbustivo_2 water_2.")
     parser.add_argument("--radius-m", type=float, default=250.0, help="Radius for --center. Default: 250 m.")
     parser.add_argument("--buffer-m", type=float, default=120.0, help="Buffer around --geojson or --poi-ids bbox. Default: 120 m.")
-    parser.add_argument("--out-dir", default=str(DEFAULT_OUT_DIR), help="Output directory. Default: web/osm_buildings_cache.")
+    parser.add_argument(
+        "--out-dir",
+        default=str(DEFAULT_OUT_DIR),
+        help="Output directory. Default: web/osm_semantic_cache.",
+    )
     parser.add_argument("--timeout", type=int, default=45, help="Per-endpoint timeout in seconds. Default: 45.")
     parser.add_argument("--retries", type=int, default=2, help="Retries after trying all endpoints. Default: 2.")
     parser.add_argument("--sleep", type=float, default=0.25, help="Pause between tile downloads. Default: 0.25 s.")
@@ -540,6 +767,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--force", action="store_true", help="Redownload existing tiles.")
     parser.add_argument("--per-tile", action="store_true", help="Old behavior: download each cache tile separately. Default is faster: one bbox request then split locally.")
     parser.add_argument("--serve", action="store_true", help="Serve this folder after downloading.")
+    parser.add_argument(
+        "--serve-only",
+        action="store_true",
+        help="Start the web/API server without preloading a fixed area.",
+    )
     parser.add_argument("--port", type=int, default=8000, help="Port for --serve. Default: 8000.")
     parser.add_argument("--auto-port", action=argparse.BooleanOptionalAction, default=True, help="If the port is busy, try the next ports automatically. Default: enabled.")
     parser.add_argument("--max-port-tries", type=int, default=20, help="How many ports to try when --auto-port is enabled. Default: 20.")
@@ -548,7 +780,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = build_parser().parse_args()
-    preload(args)
+    if args.serve_only:
+        serve(args.port, auto_port=args.auto_port, max_port_tries=args.max_port_tries)
+    else:
+        preload(args)
 
 
 if __name__ == "__main__":

@@ -234,6 +234,7 @@
     .swatch.semantic-building { background: #b65d13; }
     .swatch.semantic-water { background: #2f80ed; }
     .swatch.semantic-forest { background: #3a7d44; }
+    .swatch.semantic-scrub { background: #8a6d3b; }
 
     .cache-tools { border: 1px solid var(--line); border-radius: 8px; background: #fbfbf8; padding: 10px; margin: 0 0 10px; }
     .cache-tools.hidden { display: none; }
@@ -402,6 +403,7 @@
                     <option value="building">Building — blocked</option>
                     <option value="water">Water — blocked</option>
                     <option value="forest">Forest — high cost</option>
+                    <option value="scrub">Scrub — medium cost</option>
                   </select>
                 </div>
                 <div class="cache-actions four">
@@ -412,7 +414,21 @@
                 </div>
                 <div id="manualObstacleList" class="zone-list"></div>
               </div>
-              <p id="obstacleHint" class="compact-note">Draw buildings, water or forest so the local cost route can account for them.</p>
+              <div id="publicSemanticTools" class="cache-tools">
+                <div class="cache-head">
+                  <span class="cache-title">Public OpenStreetMap data</span>
+                  <span id="publicSemanticStatus" class="cache-status">Not loaded</span>
+                </div>
+                <div class="field">
+                  <label for="publicWaypointMinArea">Minimum resource area (m²)</label>
+                  <input id="publicWaypointMinArea" type="number" min="25" max="100000" step="25" value="100">
+                </div>
+                <div class="cache-actions">
+                  <button id="loadPublicSemanticBtn" class="secondary" type="button">Load visible area</button>
+                  <button id="clearPublicSemanticBtn" class="secondary danger" type="button">Clear public data</button>
+                </div>
+              </div>
+              <p id="obstacleHint" class="compact-note">Draw zones manually or load mapped public data for the visible area.</p>
             </div>
           </details>
 
@@ -523,7 +539,7 @@
               <option value="driving">Driving roads</option>
             </select>
           </div>
-          <p id="costRouteNote" class="compact-note hidden">Local costmap A* blocks buildings and water and assigns a high traversal cost to forest.</p>
+          <p id="costRouteNote" class="compact-note hidden">Local A* blocks buildings/water and penalizes forest/scrub.</p>
         </section>
 
         <section class="map-panel map-route-block" aria-label="Route generation">
@@ -651,6 +667,7 @@ let manualObstacles = [];
 let manualObstacleDraft = [];
 let manualObstacleDrawMode = false;
 let manualObstacleEditSnapshot = null;
+let publicSemanticZones = [];
 
 // Keep GPS/satellite as the default view; users can switch to the map layer.
 const modeBaseView = {coverage: "gps", mission: "gps"};
@@ -676,6 +693,7 @@ const baseLayers = {
 const fieldLayer = L.layerGroup().addTo(map);
 const resultLayer = L.layerGroup().addTo(map);
 const missionLayer = L.layerGroup().addTo(map);
+const publicSemanticLayer = L.layerGroup().addTo(map);
 const manualObstacleLayer = L.layerGroup().addTo(map);
 const markerLayer = L.layerGroup().addTo(map);
 
@@ -728,9 +746,11 @@ function updateLegend() {
       items.push([cls, label]);
     }
     if (missionStops.length || poiGeojson.features.length) items.push(["poly", "Waypoints"]);
-    const kinds = new Set(manualObstacles.map(zone => zone.kind || "building"));
+    const kinds = new Set(
+      manualObstacles.concat(publicSemanticZones).map(zone => zone.kind || "building")
+    );
     if (manualObstacleDraft.length) kinds.add(safeVal("manualObstacleKind", "building"));
-    for (const kind of ["building", "water", "forest"]) {
+    for (const kind of ["building", "water", "forest", "scrub"]) {
       if (kinds.has(kind)) items.push([`semantic-${kind}`, SEMANTIC_ZONE_STYLE[kind].label]);
     }
   }
@@ -1607,7 +1627,8 @@ const MANUAL_OBSTACLE_STORAGE_KEY = "geozigzag_manual_obstacles_v1";
 const SEMANTIC_ZONE_STYLE = {
   building: {label: "Building", color: "#b65d13", cost: Infinity},
   water: {label: "Water", color: "#2f80ed", cost: Infinity},
-  forest: {label: "Forest", color: "#3a7d44", cost: 80}
+  forest: {label: "Forest", color: "#3a7d44", cost: 80},
+  scrub: {label: "Scrub", color: "#8a6d3b", cost: 45}
 };
 
 function manualObstacleToBuilding(obstacle) {
@@ -1782,7 +1803,413 @@ function manualObstaclesForBbox(bbox) {
   return manualObstacles.filter(o => bboxOverlap(o.bbox || routeBBox(o.ring), bbox));
 }
 function manualHardObstaclesForBbox(bbox) {
-  return manualObstaclesForBbox(bbox).filter(o => o.kind !== "forest");
+  return semanticZonesForBbox(bbox).filter(o => ["building", "water"].includes(o.kind));
+}
+
+const PUBLIC_SEMANTIC_STORAGE_KEY = "geozigzag_public_semantic_v1";
+const PUBLIC_SEMANTIC_MAX_AREA_M2 = 9_000_000;
+const PUBLIC_SEMANTIC_MAX_FEATURES = 1200;
+
+function semanticZonesForBbox(bbox) {
+  return manualObstacles.concat(publicSemanticZones)
+    .filter(zone => bboxOverlap(zone.bbox || routeBBox(zone.ring), bbox));
+}
+function closeSemanticRing(ring) {
+  const clean = (ring || []).filter(
+    point => Array.isArray(point) && Number.isFinite(point[0]) && Number.isFinite(point[1])
+  );
+  if (clean.length < 3) return [];
+  const first = clean[0], last = clean[clean.length - 1];
+  if (Math.abs(first[0] - last[0]) > 1e-10 || Math.abs(first[1] - last[1]) > 1e-10) {
+    clean.push([first[0], first[1]]);
+  }
+  return clean.length >= 4 ? clean : [];
+}
+function sameSemanticPoint(a, b, eps = 1e-9) {
+  return Math.abs(a[0] - b[0]) <= eps && Math.abs(a[1] - b[1]) <= eps;
+}
+function joinSemanticFragments(fragments) {
+  const remaining = fragments.map(fragment => fragment.slice()).filter(fragment => fragment.length >= 2);
+  const rings = [];
+  while (remaining.length) {
+    let ring = remaining.shift();
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (let index = 0; index < remaining.length; index++) {
+        const fragment = remaining[index];
+        if (sameSemanticPoint(ring[ring.length - 1], fragment[0])) {
+          ring = ring.concat(fragment.slice(1));
+        } else if (sameSemanticPoint(ring[ring.length - 1], fragment[fragment.length - 1])) {
+          ring = ring.concat(fragment.slice(0, -1).reverse());
+        } else if (sameSemanticPoint(ring[0], fragment[fragment.length - 1])) {
+          ring = fragment.slice(0, -1).concat(ring);
+        } else if (sameSemanticPoint(ring[0], fragment[0])) {
+          ring = fragment.slice(1).reverse().concat(ring);
+        } else {
+          continue;
+        }
+        remaining.splice(index, 1);
+        changed = true;
+        break;
+      }
+    }
+    const closed = closeSemanticRing(ring);
+    if (closed.length) rings.push(closed);
+  }
+  return rings;
+}
+function publicSemanticKind(tags = {}) {
+  if (tags.building) return "building";
+  if (tags.natural === "water" || tags.landuse === "reservoir") return "water";
+  if (tags.natural === "wood" || tags.landuse === "forest") return "forest";
+  if (tags.natural === "scrub") return "scrub";
+  return null;
+}
+function clipSemanticRingToBbox(ring, bbox) {
+  let points = closeSemanticRing(ring).slice(0, -1);
+  const clip = (inside, intersect) => {
+    if (!points.length) return;
+    const output = [];
+    let previous = points[points.length - 1];
+    for (const current of points) {
+      const currentInside = inside(current);
+      const previousInside = inside(previous);
+      if (currentInside) {
+        if (!previousInside) output.push(intersect(previous, current));
+        output.push(current);
+      } else if (previousInside) {
+        output.push(intersect(previous, current));
+      }
+      previous = current;
+    }
+    points = output;
+  };
+  const atLon = (a, b, lon) => {
+    const ratio = (lon - a[1]) / ((b[1] - a[1]) || 1e-15);
+    return [a[0] + (b[0] - a[0]) * ratio, lon];
+  };
+  const atLat = (a, b, lat) => {
+    const ratio = (lat - a[0]) / ((b[0] - a[0]) || 1e-15);
+    return [lat, a[1] + (b[1] - a[1]) * ratio];
+  };
+  clip(point => point[1] >= bbox.west, (a, b) => atLon(a, b, bbox.west));
+  clip(point => point[1] <= bbox.east, (a, b) => atLon(a, b, bbox.east));
+  clip(point => point[0] >= bbox.south, (a, b) => atLat(a, b, bbox.south));
+  clip(point => point[0] <= bbox.north, (a, b) => atLat(a, b, bbox.north));
+  return closeSemanticRing(points);
+}
+function semanticRingAreaAndCenter(ring) {
+  const origin = polygonOrigin(ring);
+  const xy = ring.slice(0, -1).map(point => llToXY(point[0], point[1], origin));
+  let twiceArea = 0;
+  let centerX = 0;
+  let centerY = 0;
+  for (let index = 0; index < xy.length; index++) {
+    const first = xy[index], second = xy[(index + 1) % xy.length];
+    const cross = first[0] * second[1] - second[0] * first[1];
+    twiceArea += cross;
+    centerX += (first[0] + second[0]) * cross;
+    centerY += (first[1] + second[1]) * cross;
+  }
+  const areaM2 = Math.abs(twiceArea) / 2;
+  let centerXY;
+  if (Math.abs(twiceArea) > 1e-9) {
+    centerXY = [centerX / (3 * twiceArea), centerY / (3 * twiceArea)];
+  } else {
+    centerXY = [
+      xy.reduce((sum, point) => sum + point[0], 0) / Math.max(1, xy.length),
+      xy.reduce((sum, point) => sum + point[1], 0) / Math.max(1, xy.length)
+    ];
+  }
+  if (!pointInPolygonXY(centerXY, xy)) {
+    const xs = xy.map(point => point[0]), ys = xy.map(point => point[1]);
+    const candidates = [];
+    for (let row = 1; row < 10; row++) {
+      for (let col = 1; col < 10; col++) {
+        const candidate = [
+          Math.min(...xs) + (Math.max(...xs) - Math.min(...xs)) * col / 10,
+          Math.min(...ys) + (Math.max(...ys) - Math.min(...ys)) * row / 10
+        ];
+        if (pointInPolygonXY(candidate, xy)) candidates.push(candidate);
+      }
+    }
+    if (candidates.length) {
+      candidates.sort((a, b) =>
+        Math.hypot(a[0] - centerXY[0], a[1] - centerXY[1]) -
+        Math.hypot(b[0] - centerXY[0], b[1] - centerXY[1])
+      );
+      centerXY = candidates[0];
+    }
+  }
+  return {areaM2, center: xyToLL(centerXY[0], centerXY[1], origin)};
+}
+function parseOverpassSemantic(data, clipBbox = null) {
+  const zones = [];
+  const seen = new Set();
+  function addZone(osmId, tags, ring) {
+    const kind = publicSemanticKind(tags);
+    const original = closeSemanticRing(ring);
+    const closed = clipBbox ? clipSemanticRingToBbox(original, clipBbox) : original;
+    if (!kind || !closed.length) return;
+    const id = `osm/${osmId}/${kind}`;
+    const signature = id + ":" + closed.slice(0, 4).map(point => point.join(",")).join("|");
+    if (seen.has(signature)) return;
+    const geometry = semanticRingAreaAndCenter(closed);
+    if (geometry.areaM2 < 1) return;
+    zones.push({
+      id,
+      source: "OpenStreetMap",
+      manual: false,
+      kind,
+      ring: closed,
+      bbox: routeBBox(closed),
+      center: geometry.center,
+      areaM2: geometry.areaM2,
+      name: tags.name || null
+    });
+    seen.add(signature);
+  }
+  for (const element of data.elements || []) {
+    if (element.type !== "way") continue;
+    addZone(
+      `way/${element.id}`,
+      element.tags || {},
+      (element.geometry || []).map(point => [Number(point.lat), Number(point.lon)])
+    );
+  }
+  for (const element of data.elements || []) {
+    if (element.type !== "relation" || !Array.isArray(element.members)) continue;
+    const fragments = element.members
+      .filter(member => (!member.role || member.role === "outer") && Array.isArray(member.geometry))
+      .map(member => member.geometry.map(point => [Number(point.lat), Number(point.lon)]))
+      .filter(fragment => fragment.length >= 2);
+    joinSemanticFragments(fragments).forEach((ring, index) => {
+      addZone(`relation/${element.id}/outer/${index + 1}`, element.tags || {}, ring);
+    });
+  }
+  if (zones.length > PUBLIC_SEMANTIC_MAX_FEATURES) {
+    throw new Error(`OpenStreetMap returned ${zones.length} polygons. Zoom in to keep the result below ${PUBLIC_SEMANTIC_MAX_FEATURES}.`);
+  }
+  return zones;
+}
+function publicSemanticQuery(bbox) {
+  const bounds = `${bbox.south.toFixed(8)},${bbox.west.toFixed(8)},${bbox.north.toFixed(8)},${bbox.east.toFixed(8)}`;
+  return `[out:json][timeout:45];
+(
+  way["building"](${bounds});
+  relation["building"](${bounds});
+  way["natural"="water"](${bounds});
+  relation["natural"="water"](${bounds});
+  way["landuse"="reservoir"](${bounds});
+  relation["landuse"="reservoir"](${bounds});
+  way["natural"="wood"](${bounds});
+  relation["natural"="wood"](${bounds});
+  way["landuse"="forest"](${bounds});
+  relation["landuse"="forest"](${bounds});
+  way["natural"="scrub"](${bounds});
+  relation["natural"="scrub"](${bounds});
+);
+out geom;`;
+}
+function visibleSemanticBbox() {
+  const bounds = map.getBounds();
+  return {
+    south: bounds.getSouth(),
+    west: bounds.getWest(),
+    north: bounds.getNorth(),
+    east: bounds.getEast()
+  };
+}
+function semanticBboxAreaM2(bbox) {
+  const midLat = (bbox.south + bbox.north) / 2;
+  const height = Math.max(0, (bbox.north - bbox.south) * 111320);
+  const width = Math.max(0, (bbox.east - bbox.west) * 111320 * Math.max(0.2, Math.cos(midLat * Math.PI / 180)));
+  return width * height;
+}
+async function downloadPublicSemanticZones(bbox) {
+  const endpoints = [
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass.private.coffee/api/interpreter"
+  ];
+  const query = publicSemanticQuery(bbox);
+  const errors = [];
+  let emptyResponseSeen = false;
+  const apiQuery = new URLSearchParams({
+    south: bbox.south,
+    west: bbox.west,
+    north: bbox.north,
+    east: bbox.east
+  });
+  try {
+    const response = await fetchWithTimeout(
+      `/api/osm/semantic?${apiQuery}`,
+      {headers: {"Accept": "application/json"}},
+      120000,
+      "Local semantic-data service"
+    );
+    if (response.ok) {
+      const payload = await response.json();
+      const zones = (payload.features || []).filter(
+        zone => zone && SEMANTIC_ZONE_STYLE[zone.kind] && Array.isArray(zone.ring)
+      );
+      if (zones.length || payload.features) return zones;
+    } else if (response.status !== 404) {
+      const payload = await response.json().catch(() => ({}));
+      errors.push(`local service: ${payload.error || `HTTP ${response.status}`}`);
+    }
+  } catch (error) {
+    errors.push(`local service: ${error.message || error}`);
+  }
+  for (const endpoint of endpoints) {
+    try {
+      const response = await fetchWithTimeout(endpoint, {
+        method: "POST",
+        headers: {"Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"},
+        body: "data=" + encodeURIComponent(query)
+      }, 25000, "OpenStreetMap semantic data");
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const zones = parseOverpassSemantic(await response.json(), bbox);
+      if (zones.length) return zones;
+      emptyResponseSeen = true;
+      errors.push(`${endpoint.replace(/^https?:\/\//, "")}: no supported polygons`);
+    } catch (error) {
+      errors.push(`${endpoint.replace(/^https?:\/\//, "")}: ${error.message || error}`);
+    }
+  }
+  if (emptyResponseSeen) return [];
+  throw new Error(`Public data download failed. ${errors.join(" | ")}`);
+}
+function removePublicSemanticWaypoints() {
+  poiGeojson.features = poiGeojson.features.filter(feature => !feature.properties?.publicSemantic);
+  const available = new Set(poiGeojson.features.map(feature => feature.id));
+  missionStops = missionStops.filter(id => available.has(id));
+}
+function rebuildPublicSemanticWaypoints() {
+  removePublicSemanticWaypoints();
+  const minimumArea = Math.max(25, safeNum("publicWaypointMinArea", 100));
+  const resources = publicSemanticZones
+    .filter(zone => ["forest", "scrub"].includes(zone.kind) && zone.areaM2 >= minimumArea)
+    .sort((a, b) => b.areaM2 - a.areaM2)
+    .slice(0, 80);
+  for (const zone of resources) {
+    const id = `public_${zone.kind}_${String(zone.id).replace(/[^a-zA-Z0-9]+/g, "_")}`;
+    poiGeojson.features.push({
+      id,
+      type: "Feature",
+      properties: {
+        landcover: zone.kind,
+        publicSemantic: true,
+        source: "OpenStreetMap",
+        area_m2: Math.round(zone.areaM2),
+        osm_zone_id: zone.id,
+        name: zone.name || id
+      },
+      geometry: {type: "Point", coordinates: [zone.center[1], zone.center[0]]}
+    });
+  }
+  renderPoiPicker();
+  renderMissionList();
+  if (appMode === "mission") renderMissionMarkers();
+  return resources.length;
+}
+function drawPublicSemanticZones() {
+  publicSemanticLayer.clearLayers();
+  for (const zone of publicSemanticZones) {
+    const style = SEMANTIC_ZONE_STYLE[zone.kind];
+    L.polygon(zone.ring, {
+      color: style.color,
+      weight: 2,
+      opacity: 0.9,
+      fillColor: style.color,
+      fillOpacity: 0.18,
+      interactive: true
+    }).addTo(publicSemanticLayer).bindTooltip(
+      `${zone.name || style.label} · OSM · ${Math.round(zone.areaM2)} m²`,
+      {direction: "center"}
+    );
+  }
+  updateLegend();
+}
+function publicSemanticCounts() {
+  const counts = {building: 0, water: 0, forest: 0, scrub: 0};
+  publicSemanticZones.forEach(zone => { counts[zone.kind] += 1; });
+  return counts;
+}
+function updatePublicSemanticStatus(waypointCount = null) {
+  const element = $("publicSemanticStatus");
+  if (!element) return;
+  if (!publicSemanticZones.length) {
+    element.textContent = "Not loaded";
+    return;
+  }
+  const counts = publicSemanticCounts();
+  const resources = waypointCount === null
+    ? poiGeojson.features.filter(feature => feature.properties?.publicSemantic).length
+    : waypointCount;
+  element.textContent = `${publicSemanticZones.length} zones · ${resources} resource WPs`;
+  element.title = `Buildings ${counts.building}, water ${counts.water}, forest ${counts.forest}, scrub ${counts.scrub}`;
+}
+function savePublicSemanticZones() {
+  try {
+    localStorage.setItem(PUBLIC_SEMANTIC_STORAGE_KEY, JSON.stringify({
+      savedAt: Date.now(),
+      zones: publicSemanticZones
+    }));
+  } catch (_) {}
+}
+function loadSavedPublicSemanticZones() {
+  try {
+    const payload = JSON.parse(localStorage.getItem(PUBLIC_SEMANTIC_STORAGE_KEY) || "{}");
+    publicSemanticZones = (payload.zones || []).filter(
+      zone => zone && SEMANTIC_ZONE_STYLE[zone.kind] && Array.isArray(zone.ring) && zone.ring.length >= 4
+    );
+  } catch (_) {
+    publicSemanticZones = [];
+  }
+  drawPublicSemanticZones();
+  updatePublicSemanticStatus(rebuildPublicSemanticWaypoints());
+}
+function clearPublicSemanticZones() {
+  publicSemanticZones = [];
+  try { localStorage.removeItem(PUBLIC_SEMANTIC_STORAGE_KEY); } catch (_) {}
+  removePublicSemanticWaypoints();
+  drawPublicSemanticZones();
+  renderPoiPicker();
+  renderMissionList();
+  if (appMode === "mission") renderMissionMarkers();
+  updatePublicSemanticStatus(0);
+  setStatus("Public semantic data cleared.", "warn");
+  if (appMode === "mission") scheduleGenerate("Public semantic data cleared.", 500);
+}
+async function loadVisiblePublicSemanticZones() {
+  const bbox = visibleSemanticBbox();
+  const area = semanticBboxAreaM2(bbox);
+  if (area > PUBLIC_SEMANTIC_MAX_AREA_M2) {
+    setStatus(`Visible area is ${(area / 1e6).toFixed(1)} km². Zoom in below ${(PUBLIC_SEMANTIC_MAX_AREA_M2 / 1e6).toFixed(0)} km².`, "err");
+    return;
+  }
+  setGenerateBusy(true);
+  setLoadingVisible(true, "Downloading OpenStreetMap buildings, water and vegetation…");
+  try {
+    publicSemanticZones = await downloadPublicSemanticZones(bbox);
+    const waypointCount = rebuildPublicSemanticWaypoints();
+    drawPublicSemanticZones();
+    savePublicSemanticZones();
+    updatePublicSemanticStatus(waypointCount);
+    const counts = publicSemanticCounts();
+    setStatus(
+      `Public data loaded: ${counts.building} buildings, ${counts.water} water, ${counts.forest} forest, ${counts.scrub} scrub; ${waypointCount} resource waypoints.`,
+      "ok"
+    );
+    if (appMode === "mission") scheduleGenerate("Public semantic data loaded.", 500);
+  } catch (error) {
+    setStatus(error.message || String(error), "err");
+  } finally {
+    setGenerateBusy(false);
+    setLoadingVisible(false);
+  }
 }
 
 function uniqueBuildings(buildings) {
@@ -2168,7 +2595,7 @@ function generateCostRoute(ids, interval) {
     const at = featureById(aId).properties.landcover;
     const bt = featureById(bId).properties.landcover;
     const searchBox = expandBBoxMeters(routeBBox([a, b]), 50);
-    const zones = manualObstaclesForBbox(searchBox);
+    const zones = semanticZonesForBbox(searchBox);
     zones.forEach(zone => usedZoneIds.add(zone.id));
     appendRoutePoints(route, localCostSegment(a, b, interval, at, bt, zones));
   }
@@ -2222,7 +2649,15 @@ async function generateMissionRoute() {
   return {waypoints: toWaypoints(result.points), rows: modeText, strategy, message: summary, details, statusClass: hasWarnings ? "warn" : "ok", detailTitle: "Route details"};
 }
 function landColor(type) {
-  return {pastizal:"#3a7d44", arbustivo:"#b65d13", matorral:"#734a9d", water:"#2f80ed", custom:"#17202a"}[type] || "#555";
+  return {
+    pastizal:"#3a7d44",
+    arbustivo:"#b65d13",
+    matorral:"#734a9d",
+    forest:"#3a7d44",
+    scrub:"#8a6d3b",
+    water:"#2f80ed",
+    custom:"#17202a"
+  }[type] || "#555";
 }
 function routeColor(strategy) {
   return {osm:"#087f7a", cost:"#b65d13", direct:"#1764aa"}[strategy] || "#1764aa";
@@ -2638,7 +3073,7 @@ function updateVisibleMissionSettings() {
       obstacleHint.textContent = "Fast mode shows semantic zones; building and water avoidance is active in Balanced or Strict.";
     } else {
       obstacleHint.textContent = s.usesCost
-        ? "Local A* blocks buildings and water and penalizes forest."
+        ? "Local A* blocks buildings/water and penalizes forest/scrub."
         : "Semantic zones stay saved here; choose Local costmap A* to account for forest.";
     }
   }
@@ -2759,6 +3194,12 @@ function bindEvents() {
   if ($("finishManualObstacleBtn")) $("finishManualObstacleBtn").addEventListener("click", finishManualObstacleDraw);
   if ($("cancelManualObstacleBtn")) $("cancelManualObstacleBtn").addEventListener("click", cancelManualObstacleDraw);
   if ($("clearManualObstacleBtn")) $("clearManualObstacleBtn").addEventListener("click", clearManualObstacles);
+  if ($("loadPublicSemanticBtn")) $("loadPublicSemanticBtn").addEventListener("click", loadVisiblePublicSemanticZones);
+  if ($("clearPublicSemanticBtn")) $("clearPublicSemanticBtn").addEventListener("click", clearPublicSemanticZones);
+  if ($("publicWaypointMinArea")) $("publicWaypointMinArea").addEventListener("change", () => {
+    updatePublicSemanticStatus(rebuildPublicSemanticWaypoints());
+    if (appMode === "mission") scheduleGenerate("Public waypoint area threshold changed.", 500);
+  });
   if ($("manualObstacleList")) $("manualObstacleList").addEventListener("click", event => {
     const deleteButton = event.target.closest("button[data-zone-delete]");
     if (deleteButton) {
@@ -2808,6 +3249,7 @@ function init() {
   renderPoiPicker();
   renderMissionList();
   loadManualObstacles();
+  loadSavedPublicSemanticZones();
   updateSpacingLabels();
   updateRectFromInputs(true);
   syncFurrowControls();

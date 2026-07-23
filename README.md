@@ -70,12 +70,22 @@ press **Generate route** to create a new result.
 
 ### Account for buildings, water, and forest
 
-In **Mission route**, open **Semantic zones**, choose a zone type, press
-**Draw zone**, and outline the feature on the map:
+In **Mission route**, open **Semantic zones**. There are two inputs:
+
+- **Load visible area** downloads mapped OpenStreetMap polygons for buildings,
+  water, forest and scrub;
+- choose a manual zone type and press **Draw zone** for missing or corrected
+  features.
 
 - buildings and water are impassable;
 - forest has a high traversal cost, so local A* prefers a reasonable detour but
-  can cross it when no practical alternative exists.
+  can cross it when no practical alternative exists;
+- scrub has a smaller traversal penalty.
+
+Forest and scrub polygons above the configured minimum area create resource
+waypoints at the center of the visible polygon. They appear in the regular
+**Waypoints** selector and are not inserted into the mission automatically.
+Buildings do not create waypoints.
 
 Choose **Local costmap A*** and press **Generate route** to apply all three
 types. OSM **Balanced** and **Strict** validate buildings and water as hard
@@ -83,6 +93,27 @@ obstacles; forest cost is local to the A* strategy because the public OSRM
 service does not accept this custom cost layer. Zones are stored in the
 browser. Existing saved forbidden zones remain compatible and are interpreted
 as buildings.
+
+For reliable public downloads, use the included same-origin proxy instead of a
+plain static server:
+
+```bash
+python3 scripts/osm_semantic_preload.py --serve-only
+```
+
+Then open <http://localhost:8000/>. The browser first requests the local
+`/api/osm/semantic` endpoint and falls back to public Overpass endpoints. A
+reproducible local cache can be prepared before field work:
+
+```bash
+python3 scripts/osm_semantic_preload.py \
+  --bbox 42.306 -6.208 42.316 -6.198 \
+  --force --serve
+```
+
+Cached files are written under `web/osm_semantic_cache/` and are not committed.
+OpenStreetMap is collaborative public data and may be incomplete; satellite
+imagery is visual context, not an automatic detector in this implementation.
 
 ## Reproduce the paper results
 

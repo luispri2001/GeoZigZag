@@ -35,6 +35,7 @@ SEMANTIC_ZONE_COST = {
     "building": float("inf"),
     "water": float("inf"),
     "forest": 80.0,
+    "scrub": 45.0,
 }
 
 
@@ -170,7 +171,7 @@ def generate_cost_route(
         kind = str(zone.get("kind", "building")).lower()
         if kind not in SEMANTIC_ZONE_COST:
             raise ValueError(
-                f"Unknown semantic zone kind {kind!r}; expected building, water or forest."
+                f"Unknown semantic zone kind {kind!r}; expected building, water, forest or scrub."
             )
         ring = zone.get("ring")
         if not isinstance(ring, Sequence) or isinstance(ring, (str, bytes)) or len(ring) < 3:
