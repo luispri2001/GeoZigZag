@@ -1,0 +1,32 @@
+profiles:
+  bench_test:
+    enabled: true
+    max_linear_velocity_mps: 0.05
+    max_angular_velocity_rad_s: 0.20
+    max_wheel_velocity_turns_s: 0.02
+    max_wheel_acceleration_turns_s2: 0.05
+    max_wheel_deceleration_turns_s2: 0.10
+    max_motor_current_a: 2.0
+    max_torque_nm: REQUIRED_DATASHEET_VALUE
+    max_dc_current_a: REQUIRED_MEASUREMENT
+    max_regen_current_a: 0.0
+    command_timeout_s: 0.30
+    communication_timeout_s: 0.25
+    max_motor_temperature_c: REQUIRED_DATASHEET_VALUE
+    max_controller_temperature_c: REQUIRED_DATASHEET_VALUE
+  indoor_test:
+    enabled: false
+    reason: REQUIRED_MEASUREMENTS_AND_GROUND_TEST
+  outdoor_test:
+    enabled: false
+    reason: REQUIRED_MEASUREMENTS_AND_GROUND_TEST
+  normal_operation:
+    enabled: false
+    reason: REQUIRED_DATASHEETS_AND_FULL_4WD_VALIDATION
+
+synchronization:
+  max_velocity_difference_rad_s: 0.50
+  warning_duration_s: 0.50
+  fault_duration_s: 1.50
+  correction_gain: 0.0
+  enable_active_correction: false

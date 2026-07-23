@@ -1,0 +1,41 @@
+mapping_status: INCOMPLETE_REQUIRES_PHYSICAL_IDENTIFICATION
+controllers:
+  primary:
+    serial: "335C33513235"
+    expected_hardware: "3.6"
+    expected_firmware: "0.5.1"
+    connected_and_verified: true
+  secondary:
+    serial: REQUIRED_SECOND_ODRIVE_SERIAL
+    expected_hardware: "3.6"
+    expected_firmware: "0.5.1"
+    connected_and_verified: false
+
+# M0 and M1 are verified against axis0 and axis1, but their robot corners and
+# forward direction have not been physically identified. The 4WD runtime must
+# refuse enable until every REQUIRED_* value is replaced and confirmed=true.
+wheels:
+  front_left:
+    odrive_serial: "335C33513235"
+    axis: 0
+    direction: REQUIRED_IDENTIFICATION
+    physical_label: M0
+    confirmed: false
+  rear_left:
+    odrive_serial: "335C33513235"
+    axis: 1
+    direction: REQUIRED_IDENTIFICATION
+    physical_label: M1
+    confirmed: false
+  front_right:
+    odrive_serial: REQUIRED_SECOND_ODRIVE_SERIAL
+    axis: 0
+    direction: REQUIRED_IDENTIFICATION
+    physical_label: REQUIRED_IDENTIFICATION
+    confirmed: false
+  rear_right:
+    odrive_serial: REQUIRED_SECOND_ODRIVE_SERIAL
+    axis: 1
+    direction: REQUIRED_IDENTIFICATION
+    physical_label: REQUIRED_IDENTIFICATION
+    confirmed: false

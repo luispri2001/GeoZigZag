@@ -1,0 +1,25 @@
+defaults:
+  manufacturer: ZLTECH
+  model: "6.5-inch Robot Hub Motor; exact SKU REQUIRED_DATASHEET_VALUE"
+  rated_voltage_v: REQUIRED_DATASHEET_VALUE
+  rated_current_a: 6.5
+  peak_current_a: REQUIRED_DATASHEET_VALUE
+  continuous_current_a: REQUIRED_DATASHEET_VALUE
+  pole_pairs: 15
+  torque_constant_nm_a: REQUIRED_DATASHEET_VALUE
+  kv_rpm_v: REQUIRED_DATASHEET_VALUE
+  maximum_motor_rpm: REQUIRED_DATASHEET_VALUE
+  maximum_temperature_c: REQUIRED_DATASHEET_VALUE
+  gear_ratio: 1.0
+  maximum_wheel_rpm: REQUIRED_DATASHEET_VALUE
+  calibration_current_a: 2.0
+  resistance_calibration_max_voltage_v: 2.0
+  encoder:
+    type: incremental_magnetic_quadrature
+    interface: AB
+    cpr: 16384
+    absolute: false
+    index_available: false
+    bandwidth_hz: 300
+    maximum_valid_speed: REQUIRED_DATASHEET_VALUE
+    supply_voltage_v: REQUIRED_MEASUREMENT
