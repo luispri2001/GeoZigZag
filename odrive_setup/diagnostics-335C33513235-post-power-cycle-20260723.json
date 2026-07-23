@@ -1,0 +1,84 @@
+{
+  "captured_at_utc": "2026-07-23T11:42:44.241735+00:00",
+  "device": {
+    "axes": {
+      "axis0": {
+        "calibration": {
+          "encoder_ready": false,
+          "motor_calibrated": true
+        },
+        "control_mode": 2,
+        "current_limit": 2.0,
+        "current_state": 1,
+        "encoder_cpr": 16384,
+        "encoder_mode": 0,
+        "errors": {
+          "axis_error": 0,
+          "controller_error": 0,
+          "disarm_reason": "<unavailable>",
+          "encoder_error": 0,
+          "motor_error": 0,
+          "procedure_result": "<unavailable>"
+        },
+        "input_mode": 1,
+        "iq_measured": 0.0,
+        "iq_setpoint": 0.0,
+        "motor_type": 0,
+        "pole_pairs": 15,
+        "position_estimate": 0.0,
+        "requested_state": 0,
+        "velocity_estimate": 0.0,
+        "velocity_limit": 0.20000000298023224
+      },
+      "axis1": {
+        "calibration": {
+          "encoder_ready": false,
+          "motor_calibrated": true
+        },
+        "control_mode": 2,
+        "current_limit": 2.0,
+        "current_state": 1,
+        "encoder_cpr": 16384,
+        "encoder_mode": 0,
+        "errors": {
+          "axis_error": 0,
+          "controller_error": 0,
+          "disarm_reason": "<unavailable>",
+          "encoder_error": 0,
+          "motor_error": 0,
+          "procedure_result": "<unavailable>"
+        },
+        "input_mode": 1,
+        "iq_measured": 0.0,
+        "iq_setpoint": 0.0,
+        "motor_type": 0,
+        "pole_pairs": 15,
+        "position_estimate": 0.0,
+        "requested_state": 0,
+        "velocity_estimate": 0.0,
+        "velocity_limit": 0.20000000298023224
+      }
+    },
+    "bootloader_version": "<unavailable>",
+    "brake_resistor_armed": true,
+    "config.brake_resistance": 2.0,
+    "config.dc_bus_overvoltage_trip_level": 59.92000198364258,
+    "config.dc_bus_undervoltage_trip_level": 8.0,
+    "config.dc_max_negative_current": -9.999999974752427e-07,
+    "config.dc_max_positive_current": "inf",
+    "config.enable_brake_resistor": "<unavailable>",
+    "fw_version_major": 0,
+    "fw_version_minor": 5,
+    "fw_version_revision": 1,
+    "fw_version_unreleased": 1,
+    "hw_version_major": 3,
+    "hw_version_minor": 6,
+    "hw_version_revision": "<unavailable>",
+    "hw_version_variant": 56,
+    "ibus": 0.0,
+    "serial_number": "335C33513235",
+    "vbus_voltage": 41.789794921875
+  },
+  "diagnostic_is_read_only": true,
+  "interface": "usb"
+}

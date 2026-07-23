@@ -1,0 +1,2 @@
+# Preserve colleague-provided reference scripts byte-for-byte.
+reference_from_colleague/*.py -whitespace
