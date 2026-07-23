@@ -15,11 +15,12 @@ is physically present:
 | Primary | `335C33513235` | ODrive v3.6, 56 V variant | 0.5.1 | 2 | Connected and bench-tested |
 | Secondary | `REQUIRED_SECOND_ODRIVE_SERIAL` | Required | Required | 2 | Not connected |
 
-The current M0 → axis0 and M1 → axis1 correspondence is verified. For temporary
-raised-wheel testing, the operator has assigned M1/axis1 to `front_left` and
-M0/axis0 to `rear_left`, both with provisional controller-positive direction.
-`bench_test.launch.py` can use these two wheels. The full four-wheel mapping
-remains incomplete and normal 4WD mode cannot enable.
+The current M0 → axis0 and M1 → axis1 correspondence is verified. The candidate
+bench placement is M1/axis1 → `front` and M0/axis0 → `rear`, but neither that
+front/rear placement nor either robot-forward sign is physically confirmed.
+`bench_test.launch.py` uses the candidate mapping only with raised wheels. The
+full four-wheel template is `config/wheel_mapping_4wd_template.yaml`; normal
+4WD mode remains blocked.
 
 ## Safety model
 
@@ -28,6 +29,12 @@ remains incomplete and normal 4WD mode cannot enable.
 - Hardware limits are applied before enabling.
 - Commands are finite-checked, clamped, converted, wheel-clamped and slew-limited.
 - A stale `/cmd_vel` ramps to zero and then puts every axis in IDLE.
+- A nonzero bench movement window is limited to three seconds even if
+  `/cmd_vel` continues publishing; another movement requires explicit enable.
+- Direction reversals decelerate to zero before the opposite sign is applied.
+- DC bus voltage is checked at 10 Hz and published in `/diagnostics`.
+- Initialization verifies that the 2 Ω brake resistor is armed and that
+  regenerative DC current is disabled for the temporary charger supply.
 - USB loss or any axis/encoder/controller error faults and idles all available axes.
 - Reconnection never resumes movement automatically.
 - `try/finally`, shutdown hooks and signal handling command zero and IDLE.
@@ -70,7 +77,8 @@ python3 /home/robotica/odrive_setup/calibrate_encoders.py all \
   --confirm-lifted-and-clear
 ```
 
-Test one axis, bounded to ±0.02 turn/s, 2 A and one second maximum:
+Test one axis, bounded to ±0.20 turn/s, 1 A and two seconds maximum (defaults
+are 0.10 turn/s for one second):
 
 ```bash
 python3 odrive_4wd_controller/scripts/test_single_wheel.py \
@@ -86,8 +94,8 @@ cd /home/robotica
 python3 odrive_setup/control_odrive.py \
   --safety-file odrive_setup/hardware_identification.json \
   --serial 335C33513235 \
-  --max-velocity 0.2 --max-acceleration 0.1 \
-  --max-configured-current 2
+  --max-velocity 0.2 --max-acceleration 0.2 \
+  --max-configured-current 1
 ```
 
 Inside the prompt, `stop`, then `idle`, then `quit`. `Ctrl+C` also invokes the
@@ -121,10 +129,11 @@ contact lines, then replace the corresponding `REQUIRED_MEASUREMENT` fields in
 
 ## ROS 2 operation
 
-The two-wheel raised-bench launch connects only the primary ODrive. It accepts
-linear `/cmd_vel`, rejects angular velocity, publishes two wheel joints, and
-does not publish odometry or TF. The wheel-speed ceiling is 0.08 turn/s and
-motor phase current remains limited to 2 A:
+The two-wheel raised-bench launch connects only the primary ODrive. It uses
+only `linear.x`, ignores `angular.z`, publishes `front_wheel_joint` and
+`rear_wheel_joint`, and does not publish odometry or TF. The wheel-speed
+ceiling is 0.15 turn/s, acceleration/deceleration is 0.15 turn/s², motor phase
+current is limited to 1 A, and each movement window is at most three seconds:
 
 ```bash
 ros2 launch odrive_4wd_controller bench_test.launch.py
@@ -143,7 +152,8 @@ Use `Ctrl+C`, not `Ctrl+X`, to stop the publisher. A publication rate above
 3.4 Hz is required by the 0.30-second watchdog; 10 Hz is recommended.
 After enable, the controller allows three seconds for the first message while
 holding an explicit zero setpoint. It never reuses a command from an earlier
-enable cycle.
+enable cycle. Continuous commands are still stopped after the three-second
+movement limit; call `/drivetrain/enable` again for another bounded test.
 
 After the complete mapping, geometry and four-wheel bench tests pass, use the
 normal launch:

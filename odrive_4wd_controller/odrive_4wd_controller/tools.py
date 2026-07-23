@@ -108,17 +108,18 @@ def _movement_device(args: argparse.Namespace) -> ODriveDevice:
             "movement refused: add --confirm-lifted-and-clear after lifting wheels "
             "and preparing the physical emergency stop"
         )
-    if not (0 < args.velocity <= 0.02):
-        raise RuntimeError("velocity must be in (0, 0.02] turn/s")
-    if not (0 < args.duration <= 1.0):
-        raise RuntimeError("duration must be in (0, 1.0] s")
+    if not (0 < args.velocity <= 0.20):
+        raise RuntimeError("velocity must be in (0, 0.20] turn/s")
+    if not (0 < args.duration <= 2.0):
+        raise RuntimeError("duration must be in (0, 2.0] s")
     device = ODriveDevice(args.serial)
     device.connect(10.0)
     device.apply_axis_limits(
         args.axis,
-        current_a=2.0,
+        current_a=1.0,
+        calibration_current_a=1.5,
         velocity_turns_s=0.2,
-        acceleration_turns_s2=0.05,
+        acceleration_turns_s2=0.20,
     )
     status = device.read_axis(args.axis)
     if not status.healthy:
@@ -130,6 +131,8 @@ def _pulse(device: ODriveDevice, axis: int, velocity: float, duration: float) ->
     start = device.read_axis(axis)
     max_current = 0.0
     max_velocity = 0.0
+    minimum_bus_voltage = float("inf")
+    maximum_bus_voltage = 0.0
     try:
         device.arm_axis(axis)
         device.command_velocity(axis, velocity)
@@ -138,11 +141,26 @@ def _pulse(device: ODriveDevice, axis: int, velocity: float, duration: float) ->
             status = device.read_axis(axis)
             if not status.healthy:
                 raise RuntimeError(f"axis fault during pulse: {status.errors}")
+            bus_voltage = device.bus_voltage()
+            if not 8.0 <= bus_voltage <= 59.92:
+                raise RuntimeError(f"DC bus out of range: {bus_voltage:.3f} V")
+            minimum_bus_voltage = min(minimum_bus_voltage, bus_voltage)
+            maximum_bus_voltage = max(maximum_bus_voltage, bus_voltage)
             max_current = max(max_current, abs(status.current_a))
             max_velocity = max(max_velocity, abs(status.velocity_turns_s))
             time.sleep(0.02)
         device.command_velocity(axis, 0.0)
-        time.sleep(0.25)
+        stop_deadline = time.monotonic() + 2.0
+        while time.monotonic() < stop_deadline:
+            status = device.read_axis(axis)
+            bus_voltage = device.bus_voltage()
+            minimum_bus_voltage = min(minimum_bus_voltage, bus_voltage)
+            maximum_bus_voltage = max(maximum_bus_voltage, bus_voltage)
+            if abs(status.velocity_turns_s) < 0.005:
+                break
+            time.sleep(0.02)
+        else:
+            raise RuntimeError("axis did not ramp to zero before timeout")
     finally:
         try:
             device.command_velocity(axis, 0.0)
@@ -154,6 +172,8 @@ def _pulse(device: ODriveDevice, axis: int, velocity: float, duration: float) ->
         "position_delta_turns": end.position_turns - start.position_turns,
         "max_abs_velocity_turns_s": max_velocity,
         "max_abs_current_a": max_current,
+        "minimum_dc_bus_voltage_v": minimum_bus_voltage,
+        "maximum_dc_bus_voltage_v": maximum_bus_voltage,
         "errors": end.errors,
         "final_state": end.state,
     }
@@ -163,8 +183,8 @@ def test_single_main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Safely test exactly one ODrive axis.")
     parser.add_argument("--serial", required=True)
     parser.add_argument("--axis", type=int, choices=(0, 1), required=True)
-    parser.add_argument("--velocity", type=float, default=0.02)
-    parser.add_argument("--duration", type=float, default=0.6)
+    parser.add_argument("--velocity", type=float, default=0.10)
+    parser.add_argument("--duration", type=float, default=1.0)
     parser.add_argument("--confirm-lifted-and-clear", action="store_true")
     args = parser.parse_args(argv)
     try:
@@ -328,6 +348,7 @@ def _build_complete_drivetrain(args: argparse.Namespace) -> Drivetrain:
     control = robot_document["control"]
     kinematics = robot_document["kinematics"]
     profile = load_yaml(args.profiles)["profiles"][args.profile]
+    electrical = load_yaml(package_config_dir() / "electrical_limits.yaml")["electrical"]
     if profile.get("enabled") is not True:
         raise RuntimeError(f"profile {args.profile} is disabled")
     radius = require_number(robot, "effective_wheel_radius_m", positive=True)
@@ -357,9 +378,14 @@ def _build_complete_drivetrain(args: argparse.Namespace) -> Drivetrain:
         require_number(profile, "max_wheel_acceleration_turns_s2", positive=True),
         require_number(profile, "max_wheel_deceleration_turns_s2", positive=True),
         require_number(profile, "max_motor_current_a", positive=True),
+        require_number(profile, "calibration_current_a", positive=True),
         require_number(profile, "command_timeout_s", positive=True),
         require_number(profile, "enable_command_grace_s", positive=True),
         require_number(control, "idle_after_timeout_s", positive=True),
+        require_number(profile, "max_motion_duration_s", positive=True),
+        require_number(electrical, "dc_undervoltage_v", positive=True),
+        require_number(electrical, "dc_overvoltage_v", positive=True),
+        1.0 / require_number(electrical, "bus_monitor_rate_hz", positive=True),
     )
     drive = Drivetrain(
         wheels,

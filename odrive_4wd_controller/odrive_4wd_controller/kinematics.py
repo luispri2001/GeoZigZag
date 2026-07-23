@@ -53,7 +53,12 @@ class SlewLimiter:
         if dt <= 0 or not math.isfinite(dt):
             return self.value
         target = float(target)
-        slowing = abs(target) < abs(self.value) or target * self.value < 0
+        reversing = target * self.value < 0
+        if reversing:
+            # A reversal is always split into two phases: decelerate exactly to
+            # zero, then accelerate in the other direction on a later tick.
+            target = 0.0
+        slowing = abs(target) < abs(self.value)
         rate = self.deceleration if slowing else self.acceleration
         maximum_change = rate * dt
         change = clamp(target - self.value, -maximum_change, maximum_change)

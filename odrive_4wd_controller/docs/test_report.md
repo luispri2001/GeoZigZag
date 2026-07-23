@@ -19,9 +19,9 @@ axis0 reached 0.241 A maximum and axis1 0.288 A maximum. Both produced
 positive/negative encoder deltas with the commanded sign, reported zero errors,
 and finished IDLE. Raw values are in `hardware_test_20260723.json`.
 
-The temporary bench mapping is M1/axis1 → front-left and M0/axis0 → rear-left,
-with provisional direction `+1` for both. This is an operator-approved
-raised-wheel assumption, not a completed robot-forward calibration.
+The temporary bench mapping is M1/axis1 → `front` and M0/axis0 → `rear`, with
+provisional direction `+1` for both. Front/rear placement and robot-forward
+signs remain unconfirmed.
 
 ROS 2 `bench_2wd` hardware test:
 
@@ -29,7 +29,7 @@ ROS 2 `bench_2wd` hardware test:
 - explicit `/drivetrain/enable`: PASS
 - one `linear.x = 0.01 m/s`, `angular.z = 0` command: PASS
 - command watchdog and explicit disable: PASS
-- `/joint_states` contains exactly `front_left` and `rear_left`: PASS
+- `/joint_states` contains exactly `front` and `rear`: PASS
 - diagnostics returned `READY`, zero velocity and zero ODrive errors: PASS
 - clean `ros2 launch` SIGINT shutdown: PASS
 - post-test axis state: both IDLE, calibrated, encoder-ready, zero errors
@@ -54,13 +54,22 @@ and both axes returned to IDLE/READY.
 A direct diagnostic at 0.10 turn/s for three seconds established that both
 motors overcome static friction reliably: axis0 advanced 0.249 turns and axis1
 0.229 turns, maximum measured current was 0.51 A, and all errors remained zero.
-The final ROS bench ceiling is therefore 0.08 turn/s, below that passed test and
-2.5 times below the independent 0.20 turn/s hardware overspeed threshold.
+That test established that both motors overcome static friction at the selected
+low-speed range.
 
 Final end-to-end ROS validation used the exact operator sequence: enable,
 one-second CLI startup, then `linear.x=0.05 m/s` at 10 Hz for three seconds.
 Front-left advanced 0.116 turns and rear-left 0.119 turns. Both stopped at zero
 velocity, diagnostics returned `READY`, and every ODrive error field was zero.
+
+The updated bounded profile was then tested at 1.0 A per axis, 1.5 A
+calibration current, 0.15 turn/s software ceiling, 0.20 turn/s hardware ceiling,
+and 0.15 turn/s² ramp. A 2.2-second command moved both wheels and returned them
+to IDLE with a sampled bus voltage of 41.82 V and zero errors. A second command
+was deliberately published for 4.5 seconds: the driver latched its stop at the
+three-second movement limit, ignored the remaining commands, and finished
+READY with both axes at zero velocity. `angular.z=0.4` was also verified to be
+ignored. Raw updated results are in `hardware_test_bounded_20260723.json`.
 
 The second ODrive and remaining two motors are not present. Consequently,
 four-wheel direction, same-side synchronization, complete drivetrain motion,
@@ -68,7 +77,7 @@ dual-USB failure handling and ground odometry are **NOT TESTED**.
 
 ## Software tests
 
-Twenty-two unit tests cover:
+Twenty-six unit tests cover:
 
 - differential kinematics and unit conversion
 - velocity saturation
@@ -78,6 +87,10 @@ Twenty-two unit tests cover:
 - odometry integration and side mismatch rejection
 - fault state transitions
 - explicit enable and guaranteed idle
+- mandatory zero crossing before direction reversal
+- bounded two-wheel movement windows
+- exact brake-resistor/regen configuration validation
+- DC bus range startup blocking
 
 Hardware-in-the-loop tests must be repeated after the second controller is
 connected:

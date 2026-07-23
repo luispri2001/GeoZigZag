@@ -96,6 +96,7 @@ class ODrive4WDNode(Node):
         robot_document = load_yaml(self.config_dir / "robot.yaml")
         mapping = load_yaml(self.config_dir / "wheel_mapping.yaml")
         profiles = load_yaml(self.config_dir / "limit_profiles.yaml")
+        electrical = load_yaml(self.config_dir / "electrical_limits.yaml")["electrical"]
         robot = robot_document["robot"]
         control = robot_document["control"]
         kinematics = robot_document["kinematics"]
@@ -123,6 +124,9 @@ class ODrive4WDNode(Node):
                 profile, "max_wheel_deceleration_turns_s2", positive=True
             ),
             motor_current_a=require_number(profile, "max_motor_current_a", positive=True),
+            calibration_current_a=require_number(
+                profile, "calibration_current_a", positive=True
+            ),
             command_timeout_s=require_number(profile, "command_timeout_s", positive=True),
             enable_command_grace_s=require_number(
                 profile, "enable_command_grace_s", positive=True
@@ -130,10 +134,21 @@ class ODrive4WDNode(Node):
             idle_after_timeout_s=require_number(
                 control, "idle_after_timeout_s", positive=True
             ),
+            max_motion_duration_s=require_number(
+                profile, "max_motion_duration_s", positive=True
+            ),
+            minimum_bus_voltage_v=require_number(
+                electrical, "dc_undervoltage_v", positive=True
+            ),
+            maximum_bus_voltage_v=require_number(
+                electrical, "dc_overvoltage_v", positive=True
+            ),
+            bus_monitor_period_s=1.0
+            / require_number(electrical, "bus_monitor_rate_hz", positive=True),
         )
 
         if self.hardware_mode == "bench_2wd":
-            selected_names = ("front_left", "rear_left")
+            selected_names = ("front", "rear")
             radius = require_number(
                 robot, "bench_assumed_wheel_radius_m", positive=True
             )
@@ -148,7 +163,8 @@ class ODrive4WDNode(Node):
                     or serial.startswith("REQUIRED_")
                     or axis not in (0, 1)
                     or direction not in (-1, 1)
-                    or entry.get("confirmed") is not True
+                    or entry.get("axis_mapping_confirmed") is not True
+                    or entry.get("raised_wheel_bench_only") is not True
                 ):
                     raise ConfigurationError(f"{name} bench mapping is incomplete")
                 identity = (serial.upper(), int(axis))
@@ -174,6 +190,14 @@ class ODrive4WDNode(Node):
                 communication_timeout_s=float(profile["communication_timeout_s"]),
             )
             device.connect(8.0)
+            device.validate_power_configuration(
+                brake_resistance_ohm=require_number(
+                    electrical, "brake_resistor_resistance_ohm", positive=True
+                ),
+                max_regen_current_a=require_number(
+                    profile, "max_regen_current_a"
+                ),
+            )
             self.devices[serial] = device
         wheels: dict[str, Wheel] = {}
         for name in selected_names:
@@ -222,8 +246,16 @@ class ODrive4WDNode(Node):
         self.robot_config = robot_document
         self.configuration_error = None
         self.get_logger().info(
-            f"{self.hardware_mode} hardware initialized; explicit enable required."
+            f"{self.hardware_mode} hardware initialized; explicit enable required. "
+            f"Motion is limited to {limits.max_motion_duration_s:.1f} s and "
+            f"DC bus monitoring is active at "
+            f"{1.0 / limits.bus_monitor_period_s:.1f} Hz."
         )
+        if self.hardware_mode == "bench_2wd":
+            self.get_logger().warning(
+                "Bench front/rear placement and direction signs are provisional; "
+                "angular.z is ignored."
+            )
 
     def _cmd_vel(self, message: Twist) -> None:
         if self.drivetrain is None or self.drivetrain.safety.state != DriveState.ENABLED:
@@ -309,7 +341,7 @@ class ODrive4WDNode(Node):
     def _publish_motion(self, dt: float) -> None:
         if not self.last_telemetry:
             return
-        names = [name for name in WHEEL_NAMES if name in self.last_telemetry]
+        names = list(self.last_telemetry)
         positions = [self.last_telemetry[n].position_turns * 2.0 * math.pi for n in names]
         velocities = [
             self.last_telemetry[n].velocity_turns_s * 2.0 * math.pi for n in names
@@ -387,6 +419,23 @@ class ODrive4WDNode(Node):
             )
             status.message = state
             status.values = [KeyValue(key="state", value=state)]
+            for serial, voltage in self.drivetrain.bus_voltages.items():
+                status.values.append(
+                    KeyValue(key=f"{serial}.dc_bus_voltage_v", value=f"{voltage:.3f}")
+                )
+            if isinstance(self.drivetrain, TwoWheelBenchDrive):
+                status.values.extend(
+                    [
+                        KeyValue(
+                            key="angular_z_ignored",
+                            value=str(self.drivetrain.ignored_angular_rad_s),
+                        ),
+                        KeyValue(
+                            key="motion_time_limit_reached",
+                            value=str(self.drivetrain.motion_limit_reached),
+                        ),
+                    ]
+                )
             for name, telemetry in self.last_telemetry.items():
                 status.values.extend(
                     [

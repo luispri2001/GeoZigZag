@@ -6,21 +6,24 @@ separate.
 
 | Parameter | Current value | Unit | Source | Safety margin / effect |
 |---|---:|---|---|---|
-| `max_wheel_velocity_turns_s` | 0.08 | turn/s | Direct 0.10 turn/s raised-wheel test passed below 0.51 A | 2.5× below stored 0.2 turn/s ceiling; software enforced |
-| `hardware_velocity_limit_turns_s` | 0.20 | turn/s | Previously validated ODrive ceiling | Independent overspeed protection; 2.5× software command ceiling |
-| `max_wheel_acceleration_turns_s2` | 0.10 | turn/s² | Conservative raised-wheel bench test | Software slew and ODrive ramp |
-| `max_wheel_deceleration_turns_s2` | 0.20 | turn/s² | Conservative raised-wheel bench test with 2 Ω resistor | Software enforced; resistor power unresolved |
-| `max_motor_current_a` | 2.0 | phase A | Successful calibration/tests | Below matched-family 6.5 A nominal; hardware enforced |
-| `max_linear_velocity_mps` | 0.05 | m/s | Bench placeholder | Software enforced; requires measured radius |
-| `max_angular_velocity_rad_s` | 0.20 | rad/s | Bench placeholder | Software enforced; requires measured track |
+| `max_wheel_velocity_turns_s` | 0.15 | turn/s | User-specified initial two-axis limit; raised-wheel HIL passed | Below independent 0.20 turn/s hardware ceiling |
+| `hardware_velocity_limit_turns_s` | 0.20 | turn/s | User-specified initial limit and ODrive verification | Independent overspeed protection |
+| `max_wheel_acceleration_turns_s2` | 0.15 | turn/s² | User-specified initial two-axis limit | Software slew and ODrive ramp |
+| `max_wheel_deceleration_turns_s2` | 0.15 | turn/s² | User-specified initial two-axis limit | Forced zero crossing before reversal |
+| `max_motor_current_a` | 1.0 | phase A | User-specified initial limit | Hardware enforced; motor rated current remains unknown |
+| `calibration_current_a` | 1.5 | phase A | User-specified initial limit | Written to each axis configuration |
+| `max_linear_velocity_mps` | 0.080 | m/s | Derived from 0.15 turn/s and candidate 0.085 m radius | Bench-only until effective radius is measured |
+| `max_angular_velocity_rad_s` | ignored | rad/s | Only one robot side is connected | `angular.z` is recorded in diagnostics but not applied |
+| `max_motion_duration_s` | 3.0 | s | User-specified initial two-axis limit | Latches stop until explicit re-enable |
 | `command_timeout_s` | 0.30 | s | Safety design | Software watchdog |
 | `enable_command_grace_s` | 3.0 | s | Allows ROS CLI publisher startup while setpoint is forced to zero | Applies only before the first command |
 | `idle_after_timeout_s` | 1.0 | s | Safety design | Software stop then hardware IDLE |
 | `dc_undervoltage_v` | 8.0 | V | Existing ODrive configuration | Hardware enforced |
 | `dc_overvoltage_v` | 59.92 | V | Existing ODrive configuration | Hardware enforced |
-| `brake_resistor_resistance_ohm` | 2.0 | Ω | Existing ODrive configuration | Power rating still required |
+| `bus_monitor_rate_hz` | 10.0 | Hz | Runtime safety design | Checked and published continuously while the node runs |
+| `brake_resistor_resistance_ohm` | 2.0 | Ω | Verified with `odrivetool` | Driver checks exact value and armed state at startup |
 | `encoder.cpr` | 16384 | counts/rev | Existing config and colleague file | Verified by calibration/feedback |
-| `pole_pairs` | 15 | pairs | Existing config and colleague file | Verified during bench commissioning |
+| `pole_pairs` | 15 | pairs | Existing candidate configuration | Exact motor SKU/datasheet still required |
 
 Correction-factor measurement:
 

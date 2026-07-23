@@ -12,8 +12,10 @@ cycle have also been validated.
 
 Keep wheels or loads lifted and have the physical emergency stop ready whenever
 calibrating or commanding motion. The exact ZLTECH motor voltage/SKU suffix was
-not visible and remains explicitly unresolved; the tested operational setup
-uses the existing 15-pole-pair/16384-CPR configuration with a 2 A ceiling.
+not visible and remains explicitly unresolved. Earlier commissioning used the
+existing 15-pole-pair/16384-CPR candidate configuration with a 2 A ceiling; the
+exact model is not proven by those successful tests. The current runtime
+ceiling is 1 A per axis, with 1.5 A calibration current.
 
 ## Current host findings
 
@@ -44,10 +46,11 @@ configuration is preserved as
 `configuration_exports/safety-interim-335C33513235-20260723T111049Z.json`.
 Recursive comparison confirmed these are the only changed fields.
 
-The tested conservative configuration is preserved as
+The earlier tested conservative configuration is preserved as
 `configuration_exports/working-safe-335C33513235-20260723T113547Z.json`.
-It limits both axes to 2 A and 0.2 turn/s, uses velocity control with a 0.1
-turn/s² ramp, and disables every automatic startup action.
+It records the earlier 2 A commissioning setup. The current ROS bench driver
+reapplies 1 A, 1.5 A calibration current, 0.2 turn/s hardware velocity limit,
+and a 0.15 turn/s² ramp at every initialization.
 
 ## Safe connection and power-up
 
@@ -149,9 +152,9 @@ python3 odrive_setup/calibrate_encoders.py all \
 ```
 
 The script refuses to start without the explicit safety confirmation, keeps the
-other axis IDLE, uses a 2 A ceiling, has a timeout, checks every error, and sends
-zero plus IDLE to both axes in `finally`. It does not mark the incremental
-encoders permanently pre-calibrated.
+other axis IDLE, uses a 1 A motor ceiling and 1.5 A calibration current, has a
+timeout, checks every error, and sends zero plus IDLE to both axes in `finally`.
+It does not mark the incremental encoders permanently pre-calibrated.
 
 ## Explicit, low-speed runtime control
 
@@ -174,7 +177,7 @@ python3 odrive_setup/control_odrive.py \
   --serial SERIAL \
   --max-velocity 0.20 \
   --max-acceleration 0.20 \
-  --max-configured-current 2
+  --max-configured-current 1
 ```
 
 Interactive commands:
@@ -262,7 +265,8 @@ Completion requires all of the following, with evidence recorded in new files:
   originality remains unresolved.
 - The motors are ZLTECH 6.5-inch robot hub motors, but the exact voltage/SKU
   suffix is not visible. Do not raise the tested limits from the documented
-  2 A / 0.2 turn/s values without the exact label/datasheet.
+  1 A / 0.2 turn/s values without the exact label/datasheet and a suitable
+  non-charger robot power source.
 - CAN bitrate/termination were not needed for native-USB testing and remain
   unresolved.
 - Both axes passed encoder mapping, encoder offset calibration, independent

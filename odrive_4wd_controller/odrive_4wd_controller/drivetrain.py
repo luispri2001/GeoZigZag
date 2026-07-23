@@ -28,9 +28,41 @@ class DriveLimits:
     acceleration_turns_s2: float
     deceleration_turns_s2: float
     motor_current_a: float
+    calibration_current_a: float
     command_timeout_s: float
     enable_command_grace_s: float
     idle_after_timeout_s: float
+    max_motion_duration_s: float
+    minimum_bus_voltage_v: float
+    maximum_bus_voltage_v: float
+    bus_monitor_period_s: float
+
+
+def _unique_devices(wheels: dict[str, Wheel]) -> list[object]:
+    devices: list[object] = []
+    seen: set[int] = set()
+    for wheel in wheels.values():
+        device = getattr(wheel, "device", None)
+        if device is not None and id(device) not in seen:
+            seen.add(id(device))
+            devices.append(device)
+    return devices
+
+
+def _read_bus_voltages(
+    devices: list[object], minimum_v: float, maximum_v: float
+) -> dict[str, float]:
+    result: dict[str, float] = {}
+    for index, device in enumerate(devices):
+        voltage = float(device.bus_voltage())  # type: ignore[attr-defined]
+        identity = str(getattr(device, "serial", f"device{index}"))
+        result[identity] = voltage
+        if not math.isfinite(voltage) or not minimum_v <= voltage <= maximum_v:
+            raise RuntimeError(
+                f"{identity} DC bus {voltage:.3f} V outside "
+                f"[{minimum_v:.3f}, {maximum_v:.3f}] V"
+            )
+    return result
 
 
 class Drivetrain:
@@ -68,16 +100,36 @@ class Drivetrain:
         self.enabled_at: float | None = None
         self.received_command = False
         self.mismatch_started: dict[str, float | None] = {"left": None, "right": None}
+        self.devices = _unique_devices(wheels)
+        self.bus_voltages: dict[str, float] = {}
+        self.last_bus_monitor_time: float | None = None
+        self.motion_started_at: float | None = None
+        self.motion_limit_reached = False
+
+    def _monitor_bus(self, now: float, *, force: bool = False) -> None:
+        if (
+            force
+            or self.last_bus_monitor_time is None
+            or now - self.last_bus_monitor_time >= self.limits.bus_monitor_period_s
+        ):
+            self.bus_voltages = _read_bus_voltages(
+                self.devices,
+                self.limits.minimum_bus_voltage_v,
+                self.limits.maximum_bus_voltage_v,
+            )
+            self.last_bus_monitor_time = now
 
     def initialize(self) -> None:
         self.safety.transition(DriveState.INITIALIZING)
         try:
+            self._monitor_bus(time.monotonic(), force=True)
             for wheel in self.wheels.values():
                 status = wheel.telemetry()
                 if not status.healthy:
                     raise RuntimeError(f"{wheel.name} is not calibrated/error-free")
                 wheel.apply_limits(
                     self.limits.motor_current_a,
+                    self.limits.calibration_current_a,
                     self.limits.hardware_velocity_turns_s,
                     self.limits.acceleration_turns_s2,
                 )
@@ -105,6 +157,8 @@ class Drivetrain:
             self.received_command = False
             self.timeout_started = None
             self.last_step_time = now
+            self.motion_started_at = None
+            self.motion_limit_reached = False
         except Exception as exc:
             for wheel in armed:
                 try:
@@ -120,6 +174,10 @@ class Drivetrain:
         if not math.isfinite(linear_mps) or not math.isfinite(angular_rad_s):
             self.fault("INVALID_COMMAND", "NaN or infinite command")
             raise ValueError("command must be finite")
+        if self.motion_limit_reached and (
+            abs(linear_mps) > 1e-9 or abs(angular_rad_s) > 1e-9
+        ):
+            raise RuntimeError("maximum movement time reached; explicitly re-enable")
         linear = clamp(
             linear_mps, -self.limits.max_linear_mps, self.limits.max_linear_mps
         )
@@ -144,27 +202,37 @@ class Drivetrain:
         self.watchdog.feed(time.monotonic() if now is None else now)
         self.received_command = True
         self.timeout_started = None
+        if self.motion_started_at is None and any(
+            abs(float(value)) > 1e-9 for value in self.target.__dict__.values()
+        ):
+            self.motion_started_at = time.monotonic() if now is None else now
 
     def step(self, now: float | None = None) -> dict[str, object]:
         now = time.monotonic() if now is None else now
         dt = 0.0 if self.last_step_time is None else max(0.0, now - self.last_step_time)
         self.last_step_time = now
-        if self.safety.state != DriveState.ENABLED:
-            return self.telemetry()
-
-        if not self.received_command:
-            stale = (
-                self.enabled_at is not None
-                and now - self.enabled_at > self.limits.enable_command_grace_s
-            )
-        else:
-            stale = self.watchdog.stale(now)
-        if stale:
-            self.target = WheelSetpoints(0.0, 0.0, 0.0, 0.0)
-            if self.timeout_started is None:
-                self.timeout_started = now
-
         try:
+            self._monitor_bus(now)
+            if self.safety.state != DriveState.ENABLED:
+                return self.telemetry()
+            movement_expired = (
+                self.motion_started_at is not None
+                and now - self.motion_started_at >= self.limits.max_motion_duration_s
+            )
+            if not self.received_command:
+                stale = (
+                    self.enabled_at is not None
+                    and now - self.enabled_at > self.limits.enable_command_grace_s
+                )
+            else:
+                stale = self.watchdog.stale(now)
+            if movement_expired:
+                self.motion_limit_reached = True
+                stale = True
+            if stale:
+                self.target = WheelSetpoints(0.0, 0.0, 0.0, 0.0)
+                if self.timeout_started is None:
+                    self.timeout_started = now
             for name in WHEEL_NAMES:
                 target = float(getattr(self.target, name))
                 command = self.limiters[name].step(target, dt)
@@ -235,7 +303,7 @@ class Drivetrain:
 class TwoWheelBenchDrive:
     """Restricted bench controller for two wheels on one robot side.
 
-    It deliberately rejects angular commands and does not provide odometry.
+    It ignores angular commands and does not provide odometry.
     This is a hardware bring-up mode, not a drivable differential platform.
     """
 
@@ -246,8 +314,8 @@ class TwoWheelBenchDrive:
         wheel_radius_m: float,
         limits: DriveLimits,
     ):
-        if set(wheels) != {"front_left", "rear_left"}:
-            raise ValueError("bench_2wd requires front_left and rear_left")
+        if set(wheels) != {"front", "rear"}:
+            raise ValueError("bench_2wd requires front and rear")
         self.wheels = wheels
         self.wheel_radius_m = wheel_radius_m
         self.limits = limits
@@ -264,15 +332,36 @@ class TwoWheelBenchDrive:
         self.timeout_started: float | None = None
         self.enabled_at: float | None = None
         self.received_command = False
+        self.devices = _unique_devices(wheels)
+        self.bus_voltages: dict[str, float] = {}
+        self.last_bus_monitor_time: float | None = None
+        self.motion_started_at: float | None = None
+        self.motion_limit_reached = False
+        self.ignored_angular_rad_s = 0.0
+
+    def _monitor_bus(self, now: float, *, force: bool = False) -> None:
+        if (
+            force
+            or self.last_bus_monitor_time is None
+            or now - self.last_bus_monitor_time >= self.limits.bus_monitor_period_s
+        ):
+            self.bus_voltages = _read_bus_voltages(
+                self.devices,
+                self.limits.minimum_bus_voltage_v,
+                self.limits.maximum_bus_voltage_v,
+            )
+            self.last_bus_monitor_time = now
 
     def initialize(self) -> None:
         self.safety.transition(DriveState.INITIALIZING)
         try:
+            self._monitor_bus(time.monotonic(), force=True)
             for wheel in self.wheels.values():
                 if not wheel.telemetry().healthy:
                     raise RuntimeError(f"{wheel.name} is not calibrated/error-free")
                 wheel.apply_limits(
                     self.limits.motor_current_a,
+                    self.limits.calibration_current_a,
                     self.limits.hardware_velocity_turns_s,
                     self.limits.acceleration_turns_s2,
                 )
@@ -287,7 +376,7 @@ class TwoWheelBenchDrive:
         if self.safety.state != DriveState.READY:
             raise RuntimeError(f"cannot enable from {self.safety.state}")
         try:
-            for name in ("front_left", "rear_left"):
+            for name in ("front", "rear"):
                 self.wheels[name].arm()
             self.safety.transition(DriveState.ENABLED)
             now = time.monotonic()
@@ -297,6 +386,9 @@ class TwoWheelBenchDrive:
             self.received_command = False
             self.timeout_started = None
             self.last_step_time = now
+            self.motion_started_at = None
+            self.motion_limit_reached = False
+            self.ignored_angular_rad_s = 0.0
         except Exception as exc:
             self.safe_shutdown()
             self.safety.trip("ENABLE_FAILED", str(exc), time.monotonic())
@@ -310,8 +402,11 @@ class TwoWheelBenchDrive:
         if not math.isfinite(linear_mps) or not math.isfinite(angular_rad_s):
             self.fault("INVALID_COMMAND", "NaN or infinite command")
             raise ValueError("command must be finite")
-        if abs(angular_rad_s) > 1e-9:
-            raise ValueError("bench_2wd rejects angular velocity; right side is absent")
+        self.ignored_angular_rad_s = angular_rad_s
+        if self.motion_limit_reached and abs(linear_mps) > 1e-9:
+            # Keep the stop latch active until the operator explicitly enables
+            # another bounded movement window.
+            return
         linear = clamp(
             linear_mps, -self.limits.max_linear_mps, self.limits.max_linear_mps
         )
@@ -323,25 +418,35 @@ class TwoWheelBenchDrive:
         self.watchdog.feed(time.monotonic() if now is None else now)
         self.received_command = True
         self.timeout_started = None
+        if self.motion_started_at is None and abs(self.target_turns_s) > 1e-9:
+            self.motion_started_at = time.monotonic() if now is None else now
 
     def step(self, now: float | None = None) -> dict[str, object]:
         now = time.monotonic() if now is None else now
         dt = 0.0 if self.last_step_time is None else max(0.0, now - self.last_step_time)
         self.last_step_time = now
-        if self.safety.state != DriveState.ENABLED:
-            return self.telemetry()
-        if not self.received_command:
-            stale = (
-                self.enabled_at is not None
-                and now - self.enabled_at > self.limits.enable_command_grace_s
-            )
-        else:
-            stale = self.watchdog.stale(now)
-        if stale:
-            self.target_turns_s = 0.0
-            if self.timeout_started is None:
-                self.timeout_started = now
         try:
+            self._monitor_bus(now)
+            if self.safety.state != DriveState.ENABLED:
+                return self.telemetry()
+            movement_expired = (
+                self.motion_started_at is not None
+                and now - self.motion_started_at >= self.limits.max_motion_duration_s
+            )
+            if not self.received_command:
+                stale = (
+                    self.enabled_at is not None
+                    and now - self.enabled_at > self.limits.enable_command_grace_s
+                )
+            else:
+                stale = self.watchdog.stale(now)
+            if movement_expired:
+                self.motion_limit_reached = True
+                stale = True
+            if stale:
+                self.target_turns_s = 0.0
+                if self.timeout_started is None:
+                    self.timeout_started = now
             for name, wheel in self.wheels.items():
                 command = self.limiters[name].step(self.target_turns_s, dt)
                 wheel.set_velocity(command)

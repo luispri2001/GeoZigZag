@@ -46,3 +46,10 @@ def test_separate_acceleration_and_deceleration():
     limiter = SlewLimiter(acceleration=1.0, deceleration=2.0)
     assert limiter.step(1.0, 0.1) == pytest.approx(0.1)
     assert limiter.step(0.0, 0.1) == pytest.approx(0.0)
+
+
+def test_reversal_must_reach_zero_before_changing_sign():
+    limiter = SlewLimiter(acceleration=1.0, deceleration=0.5, value=0.1)
+    assert limiter.step(-1.0, 0.1) == pytest.approx(0.05)
+    assert limiter.step(-1.0, 0.1) == pytest.approx(0.0)
+    assert limiter.step(-1.0, 0.1) == pytest.approx(-0.1)

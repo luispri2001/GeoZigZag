@@ -1,13 +1,29 @@
 profiles:
+  single_axis_initial:
+    enabled: true
+    raised_wheels_only: true
+    max_wheel_velocity_turns_s: 0.20
+    hardware_velocity_limit_turns_s: 0.20
+    max_wheel_acceleration_turns_s2: 0.20
+    max_wheel_deceleration_turns_s2: 0.20
+    max_motor_current_a: 1.0
+    calibration_current_a: 1.5
+    max_motion_duration_s: 2.0
+    max_regen_current_a: 0.0
   bench_test:
     enabled: true
-    max_linear_velocity_mps: 0.05
+    raised_wheels_only: true
+    # 0.15 turn/s at the candidate 0.085 m radius is approximately 0.080 m/s.
+    max_linear_velocity_mps: 0.080
     max_angular_velocity_rad_s: 0.20
-    max_wheel_velocity_turns_s: 0.08
+    ignore_angular_velocity: true
+    max_wheel_velocity_turns_s: 0.15
     hardware_velocity_limit_turns_s: 0.20
-    max_wheel_acceleration_turns_s2: 0.10
-    max_wheel_deceleration_turns_s2: 0.20
-    max_motor_current_a: 2.0
+    max_wheel_acceleration_turns_s2: 0.15
+    max_wheel_deceleration_turns_s2: 0.15
+    max_motor_current_a: 1.0
+    calibration_current_a: 1.5
+    max_motion_duration_s: 3.0
     max_torque_nm: REQUIRED_DATASHEET_VALUE
     max_dc_current_a: REQUIRED_MEASUREMENT
     max_regen_current_a: 0.0

@@ -14,6 +14,7 @@ from odrive_4wd_controller.safety import DriveState
 @dataclass
 class FakeWheel:
     name: str
+    device: object | None = None
     command: float = 0.0
     armed: bool = False
     idle_calls: int = 0
@@ -49,10 +50,19 @@ class FakeWheel:
         self.idle_calls += 1
 
 
+@dataclass
+class FakeBusDevice:
+    voltage: float
+    serial: str = "TEST"
+
+    def bus_voltage(self):
+        return self.voltage
+
+
 def make_drive():
     names = ("front_left", "rear_left", "front_right", "rear_right")
     wheels = {name: FakeWheel(name) for name in names}
-    limits = DriveLimits(0.2, 0.5, 0.2, 0.2, 0.1, 0.2, 2.0, 0.3, 3.0, 0.5)
+    limits = make_limits()
     return Drivetrain(
         wheels,
         wheel_radius_m=0.1,
@@ -60,6 +70,28 @@ def make_drive():
         limits=limits,
         max_side_difference_turns_s=0.1,
     )
+
+
+def make_limits(**overrides):
+    values = {
+        "max_linear_mps": 0.2,
+        "max_angular_rad_s": 0.5,
+        "max_wheel_turns_s": 0.2,
+        "hardware_velocity_turns_s": 0.2,
+        "acceleration_turns_s2": 0.1,
+        "deceleration_turns_s2": 0.2,
+        "motor_current_a": 1.0,
+        "calibration_current_a": 1.5,
+        "command_timeout_s": 0.3,
+        "enable_command_grace_s": 3.0,
+        "idle_after_timeout_s": 0.5,
+        "max_motion_duration_s": 3.0,
+        "minimum_bus_voltage_v": 8.0,
+        "maximum_bus_voltage_v": 59.92,
+        "bus_monitor_period_s": 0.1,
+    }
+    values.update(overrides)
+    return DriveLimits(**values)
 
 
 def test_explicit_enable_and_directional_commands():
@@ -98,13 +130,11 @@ def test_invalid_command_faults_and_idles():
     assert all(w.command == 0 for w in drive.wheels.values())
 
 
-def test_two_wheel_bench_accepts_linear_and_rejects_angular():
+def test_two_wheel_bench_accepts_linear_and_ignores_angular():
     wheels = {
-        name: FakeWheel(name) for name in ("front_left", "rear_left")
+        name: FakeWheel(name) for name in ("front", "rear")
     }
-    limits = DriveLimits(
-        0.05, 0.2, 0.02, 0.2, 0.05, 0.1, 2.0, 0.3, 3.0, 0.5
-    )
+    limits = make_limits(max_linear_mps=0.08, max_wheel_turns_s=0.15)
     drive = TwoWheelBenchDrive(wheels, wheel_radius_m=0.08255, limits=limits)
     drive.initialize()
     drive.enable()
@@ -112,19 +142,17 @@ def test_two_wheel_bench_accepts_linear_and_rejects_angular():
     drive.last_step_time = 1.0
     drive.step(now=1.1)
     assert all(wheel.command > 0 for wheel in wheels.values())
-    with pytest.raises(ValueError):
-        drive.set_command(0.0, 0.1, now=1.2)
+    drive.set_command(0.0, 0.1, now=1.2)
+    assert drive.ignored_angular_rad_s == pytest.approx(0.1)
     drive.safe_shutdown()
     assert all(wheel.command == 0 for wheel in wheels.values())
 
 
 def test_two_wheel_enable_grace_forces_old_target_to_zero():
     wheels = {
-        name: FakeWheel(name) for name in ("front_left", "rear_left")
+        name: FakeWheel(name) for name in ("front", "rear")
     }
-    limits = DriveLimits(
-        0.05, 0.2, 0.05, 0.2, 0.1, 0.2, 2.0, 0.3, 3.0, 0.5
-    )
+    limits = make_limits()
     drive = TwoWheelBenchDrive(wheels, wheel_radius_m=0.08255, limits=limits)
     drive.initialize()
     drive.target_turns_s = 0.05
@@ -133,3 +161,33 @@ def test_two_wheel_enable_grace_forces_old_target_to_zero():
     drive.step(now=start + 1.0)
     assert drive.safety.state == DriveState.ENABLED
     assert all(wheel.command == 0.0 for wheel in wheels.values())
+
+
+def test_two_wheel_maximum_motion_window_latches_stop():
+    wheels = {name: FakeWheel(name) for name in ("front", "rear")}
+    limits = make_limits(max_motion_duration_s=0.5)
+    drive = TwoWheelBenchDrive(wheels, wheel_radius_m=0.085, limits=limits)
+    drive.initialize()
+    drive.enable()
+    drive.set_command(0.05, 0.0, now=1.0)
+    drive.last_step_time = 1.0
+    drive.step(now=1.1)
+    drive.set_command(0.05, 0.0, now=1.4)
+    drive.step(now=1.51)
+    assert drive.motion_limit_reached is True
+    drive.set_command(0.05, 0.0, now=1.52)
+    assert drive.target_turns_s == 0.0
+
+
+def test_out_of_range_bus_blocks_initialization_and_idles_both():
+    device = FakeBusDevice(60.0)
+    wheels = {
+        name: FakeWheel(name, device=device) for name in ("front", "rear")
+    }
+    drive = TwoWheelBenchDrive(
+        wheels, wheel_radius_m=0.085, limits=make_limits()
+    )
+    with pytest.raises(RuntimeError, match="DC bus"):
+        drive.initialize()
+    assert drive.safety.state == DriveState.FAULT
+    assert all(not wheel.armed for wheel in wheels.values())

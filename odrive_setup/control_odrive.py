@@ -42,8 +42,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--max-configured-current",
         type=float,
-        default=10.0,
+        default=1.0,
         help="Refuse arming if the controller current limit exceeds this value [A].",
+    )
+    parser.add_argument(
+        "--max-movement-duration",
+        type=float,
+        default=2.0,
+        help="Maximum duration of each nonzero velocity command [s].",
     )
     return parser.parse_args()
 
@@ -126,6 +132,8 @@ class SafeController:
             )
 
     def status(self) -> None:
+        bus_voltage = float(read_path(self.device, "vbus_voltage", float("nan")))
+        print(f"DC bus: {bus_voltage:.3f} V")
         for name, axis in self.axes.items():
             state = read_path(axis, "current_state")
             position = first_path(axis, ("encoder.pos_estimate", "pos_estimate"))
@@ -206,6 +214,26 @@ class SafeController:
             self.commanded_velocity[name] = value
             time.sleep(period)
         print(f"{name} command={target:.4f} turn/s")
+        if abs(target) > 1e-9:
+            deadline = time.monotonic() + self.args.max_movement_duration
+            try:
+                while time.monotonic() < deadline:
+                    bus_voltage = float(read_path(self.device, "vbus_voltage", float("nan")))
+                    if not math.isfinite(bus_voltage) or not 8.0 <= bus_voltage <= 59.92:
+                        raise RuntimeError(
+                            f"DC bus voltage out of range: {bus_voltage:.3f} V"
+                        )
+                    if any(has_nonzero_error(axis) for axis in self.axes.values()):
+                        raise RuntimeError("an axis faulted; stopping both axes")
+                    time.sleep(0.05)
+            except Exception:
+                self.stop()
+                raise
+            self.set_velocity(name, 0.0)
+            print(
+                f"{name} reached the {self.args.max_movement_duration:.1f} s "
+                "movement limit and ramped to zero"
+            )
 
     def stop(self, name: str | None = None) -> None:
         names = [name] if name else list(self.axes)
@@ -265,7 +293,12 @@ class SafeController:
 
 def main() -> int:
     args = parse_args()
-    if args.max_velocity <= 0 or args.max_acceleration <= 0 or args.max_configured_current <= 0:
+    if (
+        args.max_velocity <= 0
+        or args.max_acceleration <= 0
+        or args.max_configured_current <= 0
+        or not 0 < args.max_movement_duration <= 2.0
+    ):
         print("ERROR: safety limits must be positive.", file=sys.stderr)
         return 2
     try:

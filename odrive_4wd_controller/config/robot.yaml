@@ -1,9 +1,10 @@
 robot:
-  # Physical 6.5-inch wheel gives 0.08255 m nominal radius. Measure under load.
+  # Candidate outside diameter is 170 mm. Effective rolling radius must be
+  # measured under representative load before odometry or ground operation.
+  candidate_wheel_diameter_m: 0.170
   wheel_radius_m: REQUIRED_MEASUREMENT
   effective_wheel_radius_m: REQUIRED_MEASUREMENT
-  # Temporary nominal radius for raised-wheel bench_2wd testing only.
-  bench_assumed_wheel_radius_m: 0.08255
+  bench_assumed_wheel_radius_m: 0.085
   track_width_m: REQUIRED_MEASUREMENT
   wheelbase_m: REQUIRED_MEASUREMENT
   mass_kg: REQUIRED_MEASUREMENT
@@ -17,6 +18,7 @@ control:
   update_rate_hz: 50.0
   odometry_rate_hz: 30.0
   diagnostics_rate_hz: 2.0
+  bus_monitor_rate_hz: 10.0
   command_timeout_s: 0.30
   idle_after_timeout_s: 1.0
   velocity_filter_enabled: true

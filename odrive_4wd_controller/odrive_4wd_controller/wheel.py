@@ -24,10 +24,17 @@ class Wheel:
         if self.radius_m <= 0 or self.gear_ratio <= 0 or self.scale <= 0:
             raise ValueError(f"{self.name}: geometry and scale must be positive")
 
-    def apply_limits(self, current_a: float, velocity_turns_s: float, acceleration: float) -> None:
+    def apply_limits(
+        self,
+        current_a: float,
+        calibration_current_a: float,
+        velocity_turns_s: float,
+        acceleration: float,
+    ) -> None:
         self.device.apply_axis_limits(
             self.axis_number,
             current_a=current_a,
+            calibration_current_a=calibration_current_a,
             velocity_turns_s=velocity_turns_s,
             acceleration_turns_s2=acceleration,
         )

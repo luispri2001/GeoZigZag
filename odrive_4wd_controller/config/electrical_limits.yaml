@@ -1,16 +1,23 @@
 electrical:
-  battery_nominal_voltage_v: REQUIRED_MEASUREMENT
-  battery_minimum_voltage_v: REQUIRED_MEASUREMENT
-  battery_maximum_voltage_v: REQUIRED_MEASUREMENT
-  measured_dc_bus_voltage_v: 41.79
-  battery_continuous_current_a: REQUIRED_DATASHEET_VALUE
-  battery_peak_current_a: REQUIRED_DATASHEET_VALUE
+  power_source:
+    type: temporary_direct_dc_battery_charger
+    output_voltage_v: 42.0
+    maximum_output_current_a: 5.0
+    rated_power_w: 220.0
+    regenerative_current_absorption: false
+    approved_for_final_robot: false
+    note: "Temporary raised-wheel bench supply only; replace with a suitable battery/DC source."
+  measured_dc_bus_voltage_v: 41.85
+  measured_with_odrivetool_on: "2026-07-23"
   fuse_ratings_a: REQUIRED_MEASUREMENT
   cable_current_limit_a: REQUIRED_MEASUREMENT
   brake_resistor_resistance_ohm: 2.0
-  brake_resistor_power_w: REQUIRED_DATASHEET_VALUE
-  max_regen_current_a: REQUIRED_DATASHEET_VALUE
+  brake_resistor_power_w: 50.0
+  brake_resistor_marking: "RX24 2 ohm 50 W (visual candidate; verify part marking)"
+  brake_resistor_function_verified: true
+  brake_resistor_armed_verified: true
+  max_regen_current_a: 0.0
   dc_undervoltage_v: 8.0
   dc_overvoltage_v: 59.92
-  dc_overcurrent_a: REQUIRED_DATASHEET_VALUE
+  bus_monitor_rate_hz: 10.0
   emergency_stop: "Operator confirmed present; implementation details REQUIRED_MEASUREMENT"

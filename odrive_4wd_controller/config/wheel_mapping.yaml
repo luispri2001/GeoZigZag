@@ -1,44 +1,30 @@
-mapping_status: INCOMPLETE_REQUIRES_PHYSICAL_IDENTIFICATION
+mapping_status: TWO_AXIS_BENCH_MAPPING_UNCONFIRMED
 controllers:
   primary:
     serial: "335C33513235"
     expected_hardware: "3.6"
     expected_firmware: "0.5.1"
     connected_and_verified: true
-  secondary:
-    serial: REQUIRED_SECOND_ODRIVE_SERIAL
-    expected_hardware: "3.6"
-    expected_firmware: "0.5.1"
-    connected_and_verified: false
 
-# M0 and M1 are verified against axis0 and axis1. Their left-side corner mapping
-# below is a temporary operator assumption for raised-wheel bench testing, and
-# direction +1 means controller-positive rather than verified robot-forward.
-# Full 4WD must refuse enable until every REQUIRED_* value is resolved.
+# M0 -> axis0 and M1 -> axis1 were electrically identified. The physical
+# front/rear placement and robot-forward signs remain unconfirmed. The entries
+# below preserve the latest candidate placement only for raised-wheel testing.
 wheels:
-  front_left:
+  front:
     odrive_serial: "335C33513235"
     axis: 1
     direction: 1
     physical_label: M1
-    confirmed: true
-    confirmation_source: "Temporary operator assumption for raised-wheel bench test"
-  rear_left:
+    axis_mapping_confirmed: true
+    physical_mapping_confirmed: false
+    direction_confirmed: false
+    raised_wheel_bench_only: true
+  rear:
     odrive_serial: "335C33513235"
     axis: 0
     direction: 1
     physical_label: M0
-    confirmed: true
-    confirmation_source: "Temporary operator assumption for raised-wheel bench test"
-  front_right:
-    odrive_serial: REQUIRED_SECOND_ODRIVE_SERIAL
-    axis: 0
-    direction: REQUIRED_IDENTIFICATION
-    physical_label: REQUIRED_IDENTIFICATION
-    confirmed: false
-  rear_right:
-    odrive_serial: REQUIRED_SECOND_ODRIVE_SERIAL
-    axis: 1
-    direction: REQUIRED_IDENTIFICATION
-    physical_label: REQUIRED_IDENTIFICATION
-    confirmed: false
+    axis_mapping_confirmed: true
+    physical_mapping_confirmed: false
+    direction_confirmed: false
+    raised_wheel_bench_only: true

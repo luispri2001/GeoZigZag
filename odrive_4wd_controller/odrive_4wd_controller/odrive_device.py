@@ -149,19 +149,47 @@ class ODriveDevice:
             self.device = None
             raise ODriveCommunicationError(f"{self.serial} bus read failed: {exc}") from exc
 
+    def validate_power_configuration(
+        self, *, brake_resistance_ohm: float, max_regen_current_a: float
+    ) -> None:
+        if self.device is None:
+            raise ODriveCommunicationError(f"ODrive {self.serial} is disconnected")
+        actual_resistance = float(self.device.config.brake_resistance)
+        armed = bool(self.device.brake_resistor_armed)
+        actual_max_negative = float(self.device.config.dc_max_negative_current)
+        if not math.isclose(actual_resistance, brake_resistance_ohm, abs_tol=1e-6):
+            raise RuntimeError(
+                f"{self.serial}: brake resistor is {actual_resistance} ohm, "
+                f"expected exactly {brake_resistance_ohm} ohm"
+            )
+        if not armed:
+            raise RuntimeError(f"{self.serial}: brake resistor function is not armed")
+        if max_regen_current_a == 0.0 and actual_max_negative < -0.01:
+            raise RuntimeError(
+                f"{self.serial}: negative DC current {actual_max_negative} A is "
+                "enabled but the temporary supply cannot absorb regeneration"
+            )
+
     def apply_axis_limits(
         self,
         axis_number: int,
         *,
         current_a: float,
+        calibration_current_a: float,
         velocity_turns_s: float,
         acceleration_turns_s2: float,
     ) -> None:
-        if current_a <= 0 or velocity_turns_s <= 0 or acceleration_turns_s2 <= 0:
+        if (
+            current_a <= 0
+            or calibration_current_a <= 0
+            or velocity_turns_s <= 0
+            or acceleration_turns_s2 <= 0
+        ):
             raise ValueError("hardware limits must be positive")
         try:
             axis = self.axis(axis_number)
             axis.motor.config.current_lim = current_a
+            axis.motor.config.calibration_current = calibration_current_a
             axis.controller.config.vel_limit = velocity_turns_s
             axis.controller.config.vel_ramp_rate = acceleration_turns_s2
             axis.controller.config.control_mode = CONTROL_MODE_VELOCITY

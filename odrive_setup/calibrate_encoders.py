@@ -20,7 +20,8 @@ from odrive_common import has_nonzero_error
 
 AXIS_STATE_IDLE = 1
 AXIS_STATE_ENCODER_OFFSET_CALIBRATION = 7
-SAFE_CURRENT_A = 2.0
+SAFE_MOTOR_CURRENT_A = 1.0
+SAFE_CALIBRATION_CURRENT_A = 1.5
 SAFE_RESISTANCE_CALIBRATION_V = 2.0
 
 
@@ -58,11 +59,15 @@ def calibrate_axis(name: str, axis: Any, other_axis: Any, timeout: float) -> Non
     if has_nonzero_error(axis):
         raise RuntimeError(f"{name} has active errors; diagnose before calibration")
 
-    axis.motor.config.current_lim = SAFE_CURRENT_A
-    axis.motor.config.calibration_current = SAFE_CURRENT_A
+    axis.motor.config.current_lim = SAFE_MOTOR_CURRENT_A
+    axis.motor.config.calibration_current = SAFE_CALIBRATION_CURRENT_A
     axis.motor.config.resistance_calib_max_voltage = SAFE_RESISTANCE_CALIBRATION_V
     start_count = int(axis.encoder.shadow_count)
-    print(f"{name}: starting encoder offset calibration at {SAFE_CURRENT_A:.1f} A")
+    print(
+        f"{name}: starting encoder offset calibration with "
+        f"{SAFE_MOTOR_CURRENT_A:.1f} A motor limit and "
+        f"{SAFE_CALIBRATION_CURRENT_A:.1f} A calibration current"
+    )
     axis.requested_state = AXIS_STATE_ENCODER_OFFSET_CALIBRATION
 
     deadline = time.monotonic() + timeout

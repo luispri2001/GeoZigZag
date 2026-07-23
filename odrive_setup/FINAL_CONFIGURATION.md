@@ -2,6 +2,12 @@
 
 Status: **commissioning and power-cycle validation passed**
 
+Current runtime update (2026-07-23): the ROS bench driver now applies 1.0 A
+motor current, 1.5 A calibration current, 0.20 turn/s hardware velocity,
+0.15 turn/s software velocity, and 0.15 turn/s² acceleration/deceleration.
+The earlier 2 A values below describe the archived commissioning export and
+historical tests, not the current runtime limits.
+
 ## Controller
 
 - Model: ODrive v3.6 dual-axis, 56 V variant
