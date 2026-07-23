@@ -19,13 +19,28 @@ axis0 reached 0.241 A maximum and axis1 0.288 A maximum. Both produced
 positive/negative encoder deltas with the commanded sign, reported zero errors,
 and finished IDLE. Raw values are in `hardware_test_20260723.json`.
 
+The temporary bench mapping is M1/axis1 → front-left and M0/axis0 → rear-left,
+with provisional direction `+1` for both. This is an operator-approved
+raised-wheel assumption, not a completed robot-forward calibration.
+
+ROS 2 `bench_2wd` hardware test:
+
+- launch and serial-bound initialization: PASS
+- explicit `/drivetrain/enable`: PASS
+- one `linear.x = 0.01 m/s`, `angular.z = 0` command: PASS
+- command watchdog and explicit disable: PASS
+- `/joint_states` contains exactly `front_left` and `rear_left`: PASS
+- diagnostics returned `READY`, zero velocity and zero ODrive errors: PASS
+- clean `ros2 launch` SIGINT shutdown: PASS
+- post-test axis state: both IDLE, calibrated, encoder-ready, zero errors
+
 The second ODrive and remaining two motors are not present. Consequently,
 four-wheel direction, same-side synchronization, complete drivetrain motion,
 dual-USB failure handling and ground odometry are **NOT TESTED**.
 
 ## Software tests
 
-Unit tests cover:
+Twenty unit tests cover:
 
 - differential kinematics and unit conversion
 - velocity saturation

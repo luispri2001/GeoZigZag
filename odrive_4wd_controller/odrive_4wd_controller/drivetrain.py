@@ -6,7 +6,13 @@ import math
 import time
 from dataclasses import dataclass
 
-from .kinematics import SlewLimiter, WheelSetpoints, clamp, four_wheel_setpoints
+from .kinematics import (
+    SlewLimiter,
+    WheelSetpoints,
+    clamp,
+    four_wheel_setpoints,
+    linear_mps_to_wheel_turns_s,
+)
 from .safety import CommandWatchdog, DriveState, SafetyMachine
 from .wheel import Wheel
 
@@ -182,6 +188,150 @@ class Drivetrain:
                     )
             else:
                 self.mismatch_started[side] = None
+
+    def telemetry(self) -> dict[str, object]:
+        return {name: wheel.telemetry() for name, wheel in self.wheels.items()}
+
+    def disable(self) -> None:
+        self.safety.state = DriveState.STOPPING
+        self.safe_shutdown()
+        self.safety.state = DriveState.READY
+
+    def fault(self, code: str, message: str) -> None:
+        self.safe_shutdown()
+        self.safety.trip(code, message, time.monotonic())
+
+    def safe_shutdown(self) -> None:
+        for wheel in self.wheels.values():
+            try:
+                wheel.stop()
+            except Exception:
+                pass
+        time.sleep(0.05)
+        for wheel in self.wheels.values():
+            try:
+                wheel.idle()
+            except Exception:
+                pass
+        for limiter in self.limiters.values():
+            limiter.value = 0.0
+
+
+class TwoWheelBenchDrive:
+    """Restricted bench controller for two wheels on one robot side.
+
+    It deliberately rejects angular commands and does not provide odometry.
+    This is a hardware bring-up mode, not a drivable differential platform.
+    """
+
+    def __init__(
+        self,
+        wheels: dict[str, Wheel],
+        *,
+        wheel_radius_m: float,
+        limits: DriveLimits,
+    ):
+        if set(wheels) != {"front_left", "rear_left"}:
+            raise ValueError("bench_2wd requires front_left and rear_left")
+        self.wheels = wheels
+        self.wheel_radius_m = wheel_radius_m
+        self.limits = limits
+        self.safety = SafetyMachine(DriveState.IDLE)
+        self.watchdog = CommandWatchdog(limits.command_timeout_s)
+        self.limiters = {
+            name: SlewLimiter(
+                limits.acceleration_turns_s2, limits.deceleration_turns_s2
+            )
+            for name in wheels
+        }
+        self.target_turns_s = 0.0
+        self.last_step_time: float | None = None
+        self.timeout_started: float | None = None
+
+    def initialize(self) -> None:
+        self.safety.transition(DriveState.INITIALIZING)
+        try:
+            for wheel in self.wheels.values():
+                if not wheel.telemetry().healthy:
+                    raise RuntimeError(f"{wheel.name} is not calibrated/error-free")
+                wheel.apply_limits(
+                    self.limits.motor_current_a,
+                    self.limits.max_wheel_turns_s,
+                    self.limits.acceleration_turns_s2,
+                )
+                wheel.idle()
+            self.safety.transition(DriveState.READY)
+        except Exception as exc:
+            self.safe_shutdown()
+            self.safety.trip("INITIALIZATION_FAILED", str(exc), time.monotonic())
+            raise
+
+    def enable(self) -> None:
+        if self.safety.state != DriveState.READY:
+            raise RuntimeError(f"cannot enable from {self.safety.state}")
+        try:
+            for name in ("front_left", "rear_left"):
+                self.wheels[name].arm()
+            self.safety.transition(DriveState.ENABLED)
+            now = time.monotonic()
+            self.watchdog.feed(now)
+            self.last_step_time = now
+        except Exception as exc:
+            self.safe_shutdown()
+            self.safety.trip("ENABLE_FAILED", str(exc), time.monotonic())
+            raise
+
+    def set_command(
+        self, linear_mps: float, angular_rad_s: float, now: float | None = None
+    ) -> None:
+        if self.safety.state != DriveState.ENABLED:
+            raise RuntimeError("bench drivetrain is not enabled")
+        if not math.isfinite(linear_mps) or not math.isfinite(angular_rad_s):
+            self.fault("INVALID_COMMAND", "NaN or infinite command")
+            raise ValueError("command must be finite")
+        if abs(angular_rad_s) > 1e-9:
+            raise ValueError("bench_2wd rejects angular velocity; right side is absent")
+        linear = clamp(
+            linear_mps, -self.limits.max_linear_mps, self.limits.max_linear_mps
+        )
+        self.target_turns_s = clamp(
+            linear_mps_to_wheel_turns_s(linear, self.wheel_radius_m),
+            -self.limits.max_wheel_turns_s,
+            self.limits.max_wheel_turns_s,
+        )
+        self.watchdog.feed(time.monotonic() if now is None else now)
+        self.timeout_started = None
+
+    def step(self, now: float | None = None) -> dict[str, object]:
+        now = time.monotonic() if now is None else now
+        dt = 0.0 if self.last_step_time is None else max(0.0, now - self.last_step_time)
+        self.last_step_time = now
+        if self.safety.state != DriveState.ENABLED:
+            return self.telemetry()
+        stale = self.watchdog.stale(now)
+        if stale:
+            self.target_turns_s = 0.0
+            if self.timeout_started is None:
+                self.timeout_started = now
+        try:
+            for name, wheel in self.wheels.items():
+                command = self.limiters[name].step(self.target_turns_s, dt)
+                wheel.set_velocity(command)
+            telemetry = self.telemetry()
+            for name, status in telemetry.items():
+                if not status.healthy:  # type: ignore[union-attr]
+                    raise RuntimeError(f"{name} became unhealthy")
+            if (
+                stale
+                and self.timeout_started is not None
+                and now - self.timeout_started >= self.limits.idle_after_timeout_s
+                and all(abs(item.value) < 1e-4 for item in self.limiters.values())
+            ):
+                self.disable()
+            return telemetry
+        except Exception as exc:
+            self.fault("RUNTIME_FAILURE", str(exc))
+            raise
 
     def telemetry(self) -> dict[str, object]:
         return {name: wheel.telemetry() for name, wheel in self.wheels.items()}

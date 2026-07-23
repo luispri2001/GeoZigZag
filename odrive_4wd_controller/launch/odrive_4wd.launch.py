@@ -18,6 +18,7 @@ def generate_launch_description():
                     {
                         "config_dir": LaunchConfiguration("config_dir"),
                         "limit_profile": LaunchConfiguration("limit_profile"),
+                        "hardware_mode": "four_wheel",
                     }
                 ],
             ),

@@ -2,6 +2,8 @@ robot:
   # Physical 6.5-inch wheel gives 0.08255 m nominal radius. Measure under load.
   wheel_radius_m: REQUIRED_MEASUREMENT
   effective_wheel_radius_m: REQUIRED_MEASUREMENT
+  # Temporary nominal radius for raised-wheel bench_2wd testing only.
+  bench_assumed_wheel_radius_m: 0.08255
   track_width_m: REQUIRED_MEASUREMENT
   wheelbase_m: REQUIRED_MEASUREMENT
   mass_kg: REQUIRED_MEASUREMENT

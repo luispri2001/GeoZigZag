@@ -11,22 +11,25 @@ controllers:
     expected_firmware: "0.5.1"
     connected_and_verified: false
 
-# M0 and M1 are verified against axis0 and axis1, but their robot corners and
-# forward direction have not been physically identified. The 4WD runtime must
-# refuse enable until every REQUIRED_* value is replaced and confirmed=true.
+# M0 and M1 are verified against axis0 and axis1. Their left-side corner mapping
+# below is a temporary operator assumption for raised-wheel bench testing, and
+# direction +1 means controller-positive rather than verified robot-forward.
+# Full 4WD must refuse enable until every REQUIRED_* value is resolved.
 wheels:
   front_left:
     odrive_serial: "335C33513235"
-    axis: 0
-    direction: REQUIRED_IDENTIFICATION
-    physical_label: M0
-    confirmed: false
+    axis: 1
+    direction: 1
+    physical_label: M1
+    confirmed: true
+    confirmation_source: "Temporary operator assumption for raised-wheel bench test"
   rear_left:
     odrive_serial: "335C33513235"
-    axis: 1
-    direction: REQUIRED_IDENTIFICATION
-    physical_label: M1
-    confirmed: false
+    axis: 0
+    direction: 1
+    physical_label: M0
+    confirmed: true
+    confirmation_source: "Temporary operator assumption for raised-wheel bench test"
   front_right:
     odrive_serial: REQUIRED_SECOND_ODRIVE_SERIAL
     axis: 0

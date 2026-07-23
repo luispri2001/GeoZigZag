@@ -2,7 +2,11 @@ from dataclasses import dataclass
 
 import pytest
 
-from odrive_4wd_controller.drivetrain import DriveLimits, Drivetrain
+from odrive_4wd_controller.drivetrain import (
+    DriveLimits,
+    Drivetrain,
+    TwoWheelBenchDrive,
+)
 from odrive_4wd_controller.odrive_device import AxisTelemetry
 from odrive_4wd_controller.safety import DriveState
 
@@ -92,3 +96,21 @@ def test_invalid_command_faults_and_idles():
         drive.set_command(float("nan"), 0.0)
     assert drive.safety.state == DriveState.FAULT
     assert all(w.command == 0 for w in drive.wheels.values())
+
+
+def test_two_wheel_bench_accepts_linear_and_rejects_angular():
+    wheels = {
+        name: FakeWheel(name) for name in ("front_left", "rear_left")
+    }
+    limits = DriveLimits(0.05, 0.2, 0.02, 0.05, 0.1, 2.0, 0.3, 0.5)
+    drive = TwoWheelBenchDrive(wheels, wheel_radius_m=0.08255, limits=limits)
+    drive.initialize()
+    drive.enable()
+    drive.set_command(0.01, 0.0, now=1.0)
+    drive.last_step_time = 1.0
+    drive.step(now=1.1)
+    assert all(wheel.command > 0 for wheel in wheels.values())
+    with pytest.raises(ValueError):
+        drive.set_command(0.0, 0.1, now=1.2)
+    drive.safe_shutdown()
+    assert all(wheel.command == 0 for wheel in wheels.values())

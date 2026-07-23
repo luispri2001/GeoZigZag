@@ -15,11 +15,11 @@ is physically present:
 | Primary | `335C33513235` | ODrive v3.6, 56 V variant | 0.5.1 | 2 | Connected and bench-tested |
 | Secondary | `REQUIRED_SECOND_ODRIVE_SERIAL` | Required | Required | 2 | Not connected |
 
-The current M0 → axis0 and M1 → axis1 correspondence is verified. Their
-front/rear/left/right positions and robot-forward signs are not verified, so
-`config/wheel_mapping.yaml` is intentionally incomplete. The ROS node starts
-disabled and publishes `CONFIGURATION_BLOCKED`; it cannot enable motion until
-the mapping and required geometry are completed.
+The current M0 → axis0 and M1 → axis1 correspondence is verified. For temporary
+raised-wheel testing, the operator has assigned M1/axis1 to `front_left` and
+M0/axis0 to `rear_left`, both with provisional controller-positive direction.
+`bench_test.launch.py` can use these two wheels. The full four-wheel mapping
+remains incomplete and normal 4WD mode cannot enable.
 
 ## Safety model
 
@@ -121,16 +121,30 @@ contact lines, then replace the corresponding `REQUIRED_MEASUREMENT` fields in
 
 ## ROS 2 operation
 
-Until mapping and geometry are complete, this launch is diagnostic-only and
-will refuse enable:
+The two-wheel raised-bench launch connects only the primary ODrive. It accepts
+linear `/cmd_vel`, rejects angular velocity, publishes two wheel joints, and
+does not publish odometry or TF:
 
 ```bash
 ros2 launch odrive_4wd_controller bench_test.launch.py
 ```
 
-After the four-wheel bench tests pass:
+Enable and send one short command:
 
 ```bash
+ros2 service call /drivetrain/enable std_srvs/srv/SetBool '{data: true}'
+ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist \
+  '{linear: {x: 0.01}, angular: {z: 0.0}}'
+ros2 service call /drivetrain/disable std_srvs/srv/Trigger '{}'
+```
+
+After the complete mapping, geometry and four-wheel bench tests pass, use the
+normal launch:
+
+```bash
+ros2 launch odrive_4wd_controller odrive_4wd.launch.py \
+  config_dir:=/home/robotica/GeoZigZag/odrive_4wd_controller/config \
+  limit_profile:=normal_operation
 ros2 service call /drivetrain/enable std_srvs/srv/SetBool '{data: true}'
 ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist \
   '{linear: {x: 0.03}, angular: {z: 0.0}}'

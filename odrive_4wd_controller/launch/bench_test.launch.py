@@ -17,7 +17,11 @@ def generate_launch_description():
                 name="odrive_4wd_controller",
                 output="screen",
                 parameters=[
-                    {"config_dir": config_dir, "limit_profile": "bench_test"}
+                    {
+                        "config_dir": config_dir,
+                        "limit_profile": "bench_test",
+                        "hardware_mode": "bench_2wd",
+                    }
                 ],
             )
         ]

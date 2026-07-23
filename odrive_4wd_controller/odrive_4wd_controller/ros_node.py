@@ -24,7 +24,7 @@ from .config import (
     require_number,
     validate_wheel_mapping,
 )
-from .drivetrain import DriveLimits, Drivetrain
+from .drivetrain import DriveLimits, Drivetrain, TwoWheelBenchDrive
 from .odometry import SkidSteerOdometry
 from .odrive_device import ODriveDevice
 from .safety import DriveState
@@ -49,13 +49,17 @@ class ODrive4WDNode(Node):
         super().__init__("odrive_4wd_controller")
         self.declare_parameter("config_dir", str(package_config_dir()))
         self.declare_parameter("limit_profile", "bench_test")
+        self.declare_parameter("hardware_mode", "four_wheel")
         self.config_dir = Path(
             self.get_parameter("config_dir").get_parameter_value().string_value
         )
         self.profile_name = (
             self.get_parameter("limit_profile").get_parameter_value().string_value
         )
-        self.drivetrain: Drivetrain | None = None
+        self.hardware_mode = (
+            self.get_parameter("hardware_mode").get_parameter_value().string_value
+        )
+        self.drivetrain: Drivetrain | TwoWheelBenchDrive | None = None
         self.odometry: SkidSteerOdometry | None = None
         self.devices: dict[str, ODriveDevice] = {}
         self.configuration_error: str | None = None
@@ -92,12 +96,9 @@ class ODrive4WDNode(Node):
         robot_document = load_yaml(self.config_dir / "robot.yaml")
         mapping = load_yaml(self.config_dir / "wheel_mapping.yaml")
         profiles = load_yaml(self.config_dir / "limit_profiles.yaml")
-        validate_wheel_mapping(mapping, require_complete=True)
         robot = robot_document["robot"]
         control = robot_document["control"]
         kinematics = robot_document["kinematics"]
-        radius = require_number(robot, "effective_wheel_radius_m", positive=True)
-        track = require_number(robot, "track_width_m", positive=True)
         ratio = require_number(robot, "gear_ratio", positive=True)
         profile = profiles["profiles"][self.profile_name]
         if profile.get("enabled") is not True:
@@ -124,8 +125,42 @@ class ODrive4WDNode(Node):
                 control, "idle_after_timeout_s", positive=True
             ),
         )
+
+        if self.hardware_mode == "bench_2wd":
+            selected_names = ("front_left", "rear_left")
+            radius = require_number(
+                robot, "bench_assumed_wheel_radius_m", positive=True
+            )
+            identities: set[tuple[str, int]] = set()
+            for name in selected_names:
+                entry = mapping["wheels"][name]
+                serial = entry.get("odrive_serial")
+                axis = entry.get("axis")
+                direction = entry.get("direction")
+                if (
+                    not isinstance(serial, str)
+                    or serial.startswith("REQUIRED_")
+                    or axis not in (0, 1)
+                    or direction not in (-1, 1)
+                    or entry.get("confirmed") is not True
+                ):
+                    raise ConfigurationError(f"{name} bench mapping is incomplete")
+                identity = (serial.upper(), int(axis))
+                if identity in identities:
+                    raise ConfigurationError(f"duplicate bench mapping {identity}")
+                identities.add(identity)
+        elif self.hardware_mode == "four_wheel":
+            validate_wheel_mapping(mapping, require_complete=True)
+            selected_names = WHEEL_NAMES
+            radius = require_number(robot, "effective_wheel_radius_m", positive=True)
+        else:
+            raise ConfigurationError(f"unknown hardware_mode {self.hardware_mode!r}")
+
         serials = sorted(
-            {str(entry["odrive_serial"]).upper() for entry in mapping["wheels"].values()}
+            {
+                str(mapping["wheels"][name]["odrive_serial"]).upper()
+                for name in selected_names
+            }
         )
         for serial in serials:
             device = ODriveDevice(
@@ -135,7 +170,7 @@ class ODrive4WDNode(Node):
             device.connect(8.0)
             self.devices[serial] = device
         wheels: dict[str, Wheel] = {}
-        for name in WHEEL_NAMES:
+        for name in selected_names:
             entry = mapping["wheels"][name]
             wheels[name] = Wheel(
                 name=name,
@@ -146,31 +181,43 @@ class ODrive4WDNode(Node):
                 gear_ratio=ratio,
                 scale=float(kinematics.get(f"{name}_scale", 1.0)),
             )
-        sync = profiles["synchronization"]
-        scales = {
-            "left": float(kinematics["left_velocity_scale"]),
-            "right": float(kinematics["right_velocity_scale"]),
-        }
-        self.drivetrain = Drivetrain(
-            wheels,
-            wheel_radius_m=radius,
-            track_width_m=track,
-            limits=limits,
-            scales=scales,
-            max_side_difference_turns_s=float(sync["max_velocity_difference_rad_s"])
-            / (2.0 * math.pi),
-            mismatch_warning_s=float(sync["warning_duration_s"]),
-            mismatch_fault_s=float(sync["fault_duration_s"]),
-        )
+
+        if self.hardware_mode == "bench_2wd":
+            self.drivetrain = TwoWheelBenchDrive(
+                wheels, wheel_radius_m=radius, limits=limits
+            )
+            self.odometry = None
+        else:
+            track = require_number(robot, "track_width_m", positive=True)
+            sync = profiles["synchronization"]
+            scales = {
+                "left": float(kinematics["left_velocity_scale"]),
+                "right": float(kinematics["right_velocity_scale"]),
+            }
+            self.drivetrain = Drivetrain(
+                wheels,
+                wheel_radius_m=radius,
+                track_width_m=track,
+                limits=limits,
+                scales=scales,
+                max_side_difference_turns_s=float(
+                    sync["max_velocity_difference_rad_s"]
+                )
+                / (2.0 * math.pi),
+                mismatch_warning_s=float(sync["warning_duration_s"]),
+                mismatch_fault_s=float(sync["fault_duration_s"]),
+            )
+            self.odometry = SkidSteerOdometry(
+                radius,
+                track,
+                float(sync["max_velocity_difference_rad_s"]) / (2.0 * math.pi),
+            )
         self.drivetrain.initialize()
-        self.odometry = SkidSteerOdometry(
-            radius,
-            track,
-            float(sync["max_velocity_difference_rad_s"]) / (2.0 * math.pi),
-        )
         self.robot_config = robot_document
         self.configuration_error = None
-        self.get_logger().info("Four-wheel hardware initialized; explicit enable required.")
+        self.get_logger().info(
+            f"{self.hardware_mode} hardware initialized; explicit enable required."
+        )
 
     def _cmd_vel(self, message: Twist) -> None:
         if self.drivetrain is None or self.drivetrain.safety.state != DriveState.ENABLED:
@@ -254,9 +301,9 @@ class ODrive4WDNode(Node):
             self.get_logger().error(f"Drivetrain faulted and idled: {exc}")
 
     def _publish_motion(self, dt: float) -> None:
-        if not self.last_telemetry or self.odometry is None:
+        if not self.last_telemetry:
             return
-        names = list(WHEEL_NAMES)
+        names = [name for name in WHEEL_NAMES if name in self.last_telemetry]
         positions = [self.last_telemetry[n].position_turns * 2.0 * math.pi for n in names]
         velocities = [
             self.last_telemetry[n].velocity_turns_s * 2.0 * math.pi for n in names
@@ -267,6 +314,8 @@ class ODrive4WDNode(Node):
         joint.position = positions
         joint.velocity = velocities
         self.joints_pub.publish(joint)
+        if self.odometry is None:
+            return
         try:
             pose, linear, angular = self.odometry.update(
                 [
