@@ -211,3 +211,8 @@ independent, previously tested 0.20 turn/s ODrive overspeed limit. A final ROS
 test at 0.03 m/s and 10 Hz completed without errors. The controller also gained
 a three-second, forced-zero first-command grace period so ROS CLI startup cannot
 expire the 0.30-second steady-state watchdog.
+
+A final raised-wheel ROS test at 0.05 m/s and 10 Hz for three seconds advanced
+the temporary front-left and rear-left wheels by 0.116 and 0.119 turns
+respectively. Both ended at zero velocity in IDLE/READY with all axis, motor,
+encoder and controller errors equal to zero.

@@ -3,7 +3,7 @@ profiles:
     enabled: true
     max_linear_velocity_mps: 0.05
     max_angular_velocity_rad_s: 0.20
-    max_wheel_velocity_turns_s: 0.05
+    max_wheel_velocity_turns_s: 0.08
     hardware_velocity_limit_turns_s: 0.20
     max_wheel_acceleration_turns_s2: 0.10
     max_wheel_deceleration_turns_s2: 0.20

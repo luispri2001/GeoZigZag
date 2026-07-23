@@ -6,8 +6,8 @@ separate.
 
 | Parameter | Current value | Unit | Source | Safety margin / effect |
 |---|---:|---|---|---|
-| `max_wheel_velocity_turns_s` | 0.05 | turn/s | 0.02 turn/s did not overcome visible static friction | 4× below stored 0.2 turn/s ceiling; hardware + software |
-| `hardware_velocity_limit_turns_s` | 0.20 | turn/s | Previously validated ODrive ceiling | Independent overspeed protection; 4× software command ceiling |
+| `max_wheel_velocity_turns_s` | 0.08 | turn/s | Direct 0.10 turn/s raised-wheel test passed below 0.51 A | 2.5× below stored 0.2 turn/s ceiling; software enforced |
+| `hardware_velocity_limit_turns_s` | 0.20 | turn/s | Previously validated ODrive ceiling | Independent overspeed protection; 2.5× software command ceiling |
 | `max_wheel_acceleration_turns_s2` | 0.10 | turn/s² | Conservative raised-wheel bench test | Software slew and ODrive ramp |
 | `max_wheel_deceleration_turns_s2` | 0.20 | turn/s² | Conservative raised-wheel bench test with 2 Ω resistor | Software enforced; resistor power unresolved |
 | `max_motor_current_a` | 2.0 | phase A | Successful calibration/tests | Below matched-family 6.5 A nominal; hardware enforced |

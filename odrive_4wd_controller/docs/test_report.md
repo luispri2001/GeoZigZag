@@ -51,6 +51,17 @@ then 10 Hz commands) passed. Front-left advanced approximately 0.0027 turns,
 rear-left 0.0174 turns, final currents were below 0.31 A, all errors were zero,
 and both axes returned to IDLE/READY.
 
+A direct diagnostic at 0.10 turn/s for three seconds established that both
+motors overcome static friction reliably: axis0 advanced 0.249 turns and axis1
+0.229 turns, maximum measured current was 0.51 A, and all errors remained zero.
+The final ROS bench ceiling is therefore 0.08 turn/s, below that passed test and
+2.5 times below the independent 0.20 turn/s hardware overspeed threshold.
+
+Final end-to-end ROS validation used the exact operator sequence: enable,
+one-second CLI startup, then `linear.x=0.05 m/s` at 10 Hz for three seconds.
+Front-left advanced 0.116 turns and rear-left 0.119 turns. Both stopped at zero
+velocity, diagnostics returned `READY`, and every ODrive error field was zero.
+
 The second ODrive and remaining two motors are not present. Consequently,
 four-wheel direction, same-side synchronization, complete drivetrain motion,
 dual-USB failure handling and ground odometry are **NOT TESTED**.

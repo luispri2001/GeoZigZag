@@ -123,7 +123,7 @@ contact lines, then replace the corresponding `REQUIRED_MEASUREMENT` fields in
 
 The two-wheel raised-bench launch connects only the primary ODrive. It accepts
 linear `/cmd_vel`, rejects angular velocity, publishes two wheel joints, and
-does not publish odometry or TF. The wheel-speed ceiling is 0.05 turn/s and
+does not publish odometry or TF. The wheel-speed ceiling is 0.08 turn/s and
 motor phase current remains limited to 2 A:
 
 ```bash
@@ -135,7 +135,7 @@ Enable and send one short command:
 ```bash
 ros2 service call /drivetrain/enable std_srvs/srv/SetBool '{data: true}'
 ros2 topic pub -r 10 /cmd_vel geometry_msgs/msg/Twist \
-  '{linear: {x: 0.03}, angular: {z: 0.0}}'
+  '{linear: {x: 0.05}, angular: {z: 0.0}}'
 ros2 service call /drivetrain/disable std_srvs/srv/Trigger '{}'
 ```
 
