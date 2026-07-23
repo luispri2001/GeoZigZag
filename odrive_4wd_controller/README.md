@@ -123,7 +123,8 @@ contact lines, then replace the corresponding `REQUIRED_MEASUREMENT` fields in
 
 The two-wheel raised-bench launch connects only the primary ODrive. It accepts
 linear `/cmd_vel`, rejects angular velocity, publishes two wheel joints, and
-does not publish odometry or TF:
+does not publish odometry or TF. The wheel-speed ceiling is 0.05 turn/s and
+motor phase current remains limited to 2 A:
 
 ```bash
 ros2 launch odrive_4wd_controller bench_test.launch.py
@@ -133,10 +134,16 @@ Enable and send one short command:
 
 ```bash
 ros2 service call /drivetrain/enable std_srvs/srv/SetBool '{data: true}'
-ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist \
-  '{linear: {x: 0.01}, angular: {z: 0.0}}'
+ros2 topic pub -r 10 /cmd_vel geometry_msgs/msg/Twist \
+  '{linear: {x: 0.03}, angular: {z: 0.0}}'
 ros2 service call /drivetrain/disable std_srvs/srv/Trigger '{}'
 ```
+
+Use `Ctrl+C`, not `Ctrl+X`, to stop the publisher. A publication rate above
+3.4 Hz is required by the 0.30-second watchdog; 10 Hz is recommended.
+After enable, the controller allows three seconds for the first message while
+holding an explicit zero setpoint. It never reuses a command from an earlier
+enable cycle.
 
 After the complete mapping, geometry and four-wheel bench tests pass, use the
 normal launch:

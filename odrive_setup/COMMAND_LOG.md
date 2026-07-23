@@ -189,3 +189,25 @@ and axis1 sequentially. Both completed ready with no errors and the script
 returned both axes to IDLE. A final simultaneous +0.02 turn/s pulse for 0.8 s
 passed after reconnection. Maximum measured Iq was 0.237 A on axis0 and
 0.249 A on axis1. Both finished IDLE, encoder-ready, and error-free.
+
+## ROS two-wheel bench fault and correction
+
+During temporary `bench_2wd` commissioning, the software and ODrive hardware
+velocity limits were initially both set to 0.05 turn/s. Axis0 recorded:
+
+```text
+AXIS_ERROR_CONTROLLER_FAILED       0x200
+MOTOR_ERROR_CONTROL_DEADLINE_MISSED 0x10
+CONTROLLER_ERROR_OVERSPEED          0x1
+```
+
+Both axes were already IDLE and no overcurrent, encoder or DC-bus error was
+present. A read-only diagnostic was saved before clearing. Zero velocity and
+IDLE were requested, then `axis.clear_errors()` was invoked once per axis.
+Both returned error-free and encoder-ready.
+
+The correction retained a 0.05 turn/s software command ceiling but restored the
+independent, previously tested 0.20 turn/s ODrive overspeed limit. A final ROS
+test at 0.03 m/s and 10 Hz completed without errors. The controller also gained
+a three-second, forced-zero first-command grace period so ROS CLI startup cannot
+expire the 0.30-second steady-state watchdog.

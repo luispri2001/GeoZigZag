@@ -113,6 +113,9 @@ class ODrive4WDNode(Node):
             max_wheel_turns_s=require_number(
                 profile, "max_wheel_velocity_turns_s", positive=True
             ),
+            hardware_velocity_turns_s=require_number(
+                profile, "hardware_velocity_limit_turns_s", positive=True
+            ),
             acceleration_turns_s2=require_number(
                 profile, "max_wheel_acceleration_turns_s2", positive=True
             ),
@@ -121,6 +124,9 @@ class ODrive4WDNode(Node):
             ),
             motor_current_a=require_number(profile, "max_motor_current_a", positive=True),
             command_timeout_s=require_number(profile, "command_timeout_s", positive=True),
+            enable_command_grace_s=require_number(
+                profile, "enable_command_grace_s", positive=True
+            ),
             idle_after_timeout_s=require_number(
                 control, "idle_after_timeout_s", positive=True
             ),

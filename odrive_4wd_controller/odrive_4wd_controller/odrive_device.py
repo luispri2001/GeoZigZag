@@ -227,4 +227,5 @@ class ODriveDevice:
         """Explicit operator action only; never called automatically."""
         if self.device is None:
             raise ODriveCommunicationError(f"ODrive {self.serial} is disconnected")
-        self.device.clear_errors()
+        for axis_number in (0, 1):
+            self.axis(axis_number).clear_errors()

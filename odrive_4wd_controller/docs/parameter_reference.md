@@ -6,13 +6,15 @@ separate.
 
 | Parameter | Current value | Unit | Source | Safety margin / effect |
 |---|---:|---|---|---|
-| `max_wheel_velocity_turns_s` | 0.02 | turn/s | Passed bench pulse | 10× below stored 0.2 turn/s ceiling; hardware + software |
-| `max_wheel_acceleration_turns_s2` | 0.05 | turn/s² | Conservative bench commissioning | Software slew and ODrive ramp |
-| `max_wheel_deceleration_turns_s2` | 0.10 | turn/s² | Conservative with 2 Ω resistor | Software enforced; resistor power unresolved |
+| `max_wheel_velocity_turns_s` | 0.05 | turn/s | 0.02 turn/s did not overcome visible static friction | 4× below stored 0.2 turn/s ceiling; hardware + software |
+| `hardware_velocity_limit_turns_s` | 0.20 | turn/s | Previously validated ODrive ceiling | Independent overspeed protection; 4× software command ceiling |
+| `max_wheel_acceleration_turns_s2` | 0.10 | turn/s² | Conservative raised-wheel bench test | Software slew and ODrive ramp |
+| `max_wheel_deceleration_turns_s2` | 0.20 | turn/s² | Conservative raised-wheel bench test with 2 Ω resistor | Software enforced; resistor power unresolved |
 | `max_motor_current_a` | 2.0 | phase A | Successful calibration/tests | Below matched-family 6.5 A nominal; hardware enforced |
 | `max_linear_velocity_mps` | 0.05 | m/s | Bench placeholder | Software enforced; requires measured radius |
 | `max_angular_velocity_rad_s` | 0.20 | rad/s | Bench placeholder | Software enforced; requires measured track |
 | `command_timeout_s` | 0.30 | s | Safety design | Software watchdog |
+| `enable_command_grace_s` | 3.0 | s | Allows ROS CLI publisher startup while setpoint is forced to zero | Applies only before the first command |
 | `idle_after_timeout_s` | 1.0 | s | Safety design | Software stop then hardware IDLE |
 | `dc_undervoltage_v` | 8.0 | V | Existing ODrive configuration | Hardware enforced |
 | `dc_overvoltage_v` | 59.92 | V | Existing ODrive configuration | Hardware enforced |

@@ -24,10 +24,12 @@ class DriveLimits:
     max_linear_mps: float
     max_angular_rad_s: float
     max_wheel_turns_s: float
+    hardware_velocity_turns_s: float
     acceleration_turns_s2: float
     deceleration_turns_s2: float
     motor_current_a: float
     command_timeout_s: float
+    enable_command_grace_s: float
     idle_after_timeout_s: float
 
 
@@ -63,6 +65,8 @@ class Drivetrain:
         self.target = WheelSetpoints(0.0, 0.0, 0.0, 0.0)
         self.last_step_time: float | None = None
         self.timeout_started: float | None = None
+        self.enabled_at: float | None = None
+        self.received_command = False
         self.mismatch_started: dict[str, float | None] = {"left": None, "right": None}
 
     def initialize(self) -> None:
@@ -74,7 +78,7 @@ class Drivetrain:
                     raise RuntimeError(f"{wheel.name} is not calibrated/error-free")
                 wheel.apply_limits(
                     self.limits.motor_current_a,
-                    self.limits.max_wheel_turns_s,
+                    self.limits.hardware_velocity_turns_s,
                     self.limits.acceleration_turns_s2,
                 )
                 wheel.idle()
@@ -95,7 +99,11 @@ class Drivetrain:
                 armed.append(wheel)
             self.safety.transition(DriveState.ENABLED)
             now = time.monotonic()
-            self.watchdog.feed(now)
+            self.target = WheelSetpoints(0.0, 0.0, 0.0, 0.0)
+            self.watchdog.last_command_time = None
+            self.enabled_at = now
+            self.received_command = False
+            self.timeout_started = None
             self.last_step_time = now
         except Exception as exc:
             for wheel in armed:
@@ -134,6 +142,7 @@ class Drivetrain:
             rear_right_scale=self.scales.get("rear_right", 1.0),
         )
         self.watchdog.feed(time.monotonic() if now is None else now)
+        self.received_command = True
         self.timeout_started = None
 
     def step(self, now: float | None = None) -> dict[str, object]:
@@ -143,7 +152,13 @@ class Drivetrain:
         if self.safety.state != DriveState.ENABLED:
             return self.telemetry()
 
-        stale = self.watchdog.stale(now)
+        if not self.received_command:
+            stale = (
+                self.enabled_at is not None
+                and now - self.enabled_at > self.limits.enable_command_grace_s
+            )
+        else:
+            stale = self.watchdog.stale(now)
         if stale:
             self.target = WheelSetpoints(0.0, 0.0, 0.0, 0.0)
             if self.timeout_started is None:
@@ -247,6 +262,8 @@ class TwoWheelBenchDrive:
         self.target_turns_s = 0.0
         self.last_step_time: float | None = None
         self.timeout_started: float | None = None
+        self.enabled_at: float | None = None
+        self.received_command = False
 
     def initialize(self) -> None:
         self.safety.transition(DriveState.INITIALIZING)
@@ -256,7 +273,7 @@ class TwoWheelBenchDrive:
                     raise RuntimeError(f"{wheel.name} is not calibrated/error-free")
                 wheel.apply_limits(
                     self.limits.motor_current_a,
-                    self.limits.max_wheel_turns_s,
+                    self.limits.hardware_velocity_turns_s,
                     self.limits.acceleration_turns_s2,
                 )
                 wheel.idle()
@@ -274,7 +291,11 @@ class TwoWheelBenchDrive:
                 self.wheels[name].arm()
             self.safety.transition(DriveState.ENABLED)
             now = time.monotonic()
-            self.watchdog.feed(now)
+            self.target_turns_s = 0.0
+            self.watchdog.last_command_time = None
+            self.enabled_at = now
+            self.received_command = False
+            self.timeout_started = None
             self.last_step_time = now
         except Exception as exc:
             self.safe_shutdown()
@@ -300,6 +321,7 @@ class TwoWheelBenchDrive:
             self.limits.max_wheel_turns_s,
         )
         self.watchdog.feed(time.monotonic() if now is None else now)
+        self.received_command = True
         self.timeout_started = None
 
     def step(self, now: float | None = None) -> dict[str, object]:
@@ -308,7 +330,13 @@ class TwoWheelBenchDrive:
         self.last_step_time = now
         if self.safety.state != DriveState.ENABLED:
             return self.telemetry()
-        stale = self.watchdog.stale(now)
+        if not self.received_command:
+            stale = (
+                self.enabled_at is not None
+                and now - self.enabled_at > self.limits.enable_command_grace_s
+            )
+        else:
+            stale = self.watchdog.stale(now)
         if stale:
             self.target_turns_s = 0.0
             if self.timeout_started is None:

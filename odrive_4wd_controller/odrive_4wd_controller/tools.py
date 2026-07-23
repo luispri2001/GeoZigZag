@@ -353,10 +353,12 @@ def _build_complete_drivetrain(args: argparse.Namespace) -> Drivetrain:
         require_number(profile, "max_linear_velocity_mps", positive=True),
         require_number(profile, "max_angular_velocity_rad_s", positive=True),
         require_number(profile, "max_wheel_velocity_turns_s", positive=True),
+        require_number(profile, "hardware_velocity_limit_turns_s", positive=True),
         require_number(profile, "max_wheel_acceleration_turns_s2", positive=True),
         require_number(profile, "max_wheel_deceleration_turns_s2", positive=True),
         require_number(profile, "max_motor_current_a", positive=True),
         require_number(profile, "command_timeout_s", positive=True),
+        require_number(profile, "enable_command_grace_s", positive=True),
         require_number(control, "idle_after_timeout_s", positive=True),
     )
     drive = Drivetrain(
