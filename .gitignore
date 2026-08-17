@@ -34,6 +34,18 @@ georoute-planner/
 venv/
 node_modules/
 
+# Local ROS/colcon products (not part of the GeoZigzag implementation)
+/build/
+/install/
+/log/
+
+# Generated remnants from local semantic router experiments. Source files are
+# intentionally not ignored if this directory is populated again.
+/semantic_waypoint_router/.pytest_cache/
+/semantic_waypoint_router/.ruff_cache/
+/semantic_waypoint_router/**/__pycache__/
+/semantic_waypoint_router/src/*.egg-info/
+
 # OS/editor noise
 .DS_Store
 Thumbs.db

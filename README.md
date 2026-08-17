@@ -28,7 +28,6 @@ verified boundary with Geo2Gazebo, Wildboar, and Jabali CropFollow.
 ```bash
 git clone git@github.com:luispri2001/GeoZigZag.git
 cd GeoZigZag
-git switch sim-integration
 
 python3 -m venv .venv
 source .venv/bin/activate
@@ -255,15 +254,19 @@ GeoJSON bundles contain one route `LineString` plus indexed waypoint features.
 
 ```text
 geozigzag/
+├── catastro.py       # official Spanish building-footprint adapter
+├── elevation.py      # Terrarium, GeoTIFF, and Terrain-RGB DEM sources
+├── terrain_costmap.py # slope penalties and traversability limits
 ├── geometry.py       # local projection, heading, polygon operations
 ├── coverage.py       # rectangle and polygon boustrophedon planners
-├── routing.py        # direct, semantic-cost A*, OSRM adapters
+├── routing.py        # direct, semantic-cost A*, DEM, and OSRM adapters
 ├── metrics.py        # distance, turns, area, forbidden intersections
 ├── export.py         # CSV, YAML, and GeoJSON
 ├── evaluation.py     # scenario execution, metrics, figures, tables
-├── evaluate.py       # python -m entry point
-├── planning.py       # compatibility facade
-└── cli.py            # compact legacy demo
+├── evaluate.py       # python -m evaluation entry point
+├── planning.py       # stable planning facade
+├── semantic_elevation_cli.py # deterministic terrain-planning POC
+└── cli.py            # compact offline demo
 ```
 
 Additional documentation:
