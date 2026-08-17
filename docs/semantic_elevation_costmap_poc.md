@@ -65,11 +65,13 @@ slope penalty, and overlay visibility. Orange cells have added traversal cost;
 red cells exceed the limit and are blocked. The route summary reports the
 number of blocked cells and maximum sampled slope.
 
-Public semantic data is loaded before the terrain-aware A* runs. The normal
-example contains a real OpenStreetMap building between `water_2` and
-`village_east`: the direct 346.1 m segment intersects the footprint, while the
-validated fused route is approximately 374.7 m and has no building
-intersection. Counts and both validation layers are recorded in Route details.
+Public semantic data is loaded before the terrain-aware A* runs. In Spain,
+Catastro INSPIRE Buildings is authoritative for building footprints and OSM
+adds water, vegetation, and non-duplicate buildings. The normal example loads
+270 Catastro polygons. Its 236-point route is approximately 550.6 m long and
+was independently checked to have no footprint within the configured 2 m
+safety margin. Source counts and both validation layers are recorded in Route
+details.
 
 Any real georeferenced single-band elevation GeoTIFF can replace the default:
 
@@ -108,9 +110,11 @@ python3 -m geozigzag.semantic_elevation_cli \
   --out outputs/real-semantic-dem
 ```
 
-The requested padding must remain inside the downloaded DEM coverage. Mapbox
-terrain data is appropriate for broad hills and terrain exclusions, not small
-furrows, ditches or wheel-scale roughness.
+The requested padding must remain inside the downloaded DEM coverage. Global
+Terrain Tiles are appropriate for broad hills and terrain exclusions, not
+small furrows, ditches or wheel-scale roughness. A CNIG MDT02 GeoTIFF can be
+passed through `--dem-geotiff` when higher-resolution Spanish terrain is
+required.
 
 The browser never silently substitutes a synthetic or flat grid when the
 terrain server is missing, a requested tile lies outside the downloaded area,

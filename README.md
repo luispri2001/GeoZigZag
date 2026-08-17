@@ -74,10 +74,10 @@ zone marks the existing route as pending and disables stale exports; press
 
 ### Account for buildings, water, and forest
 
-In **Mission route**, open **Semantic zones**. There are two inputs:
+In **Mission route**, open **Semantic zones**. There are three inputs:
 
-- **Load visible area** downloads mapped OpenStreetMap polygons for buildings,
-  water, forest and scrub;
+- in Spain, the official Cadastre INSPIRE WFS is the primary building source;
+- OpenStreetMap supplies complementary buildings, water, forest and scrub;
 - choose a manual zone type and press **Draw zone** for missing or corrected
   features.
 
@@ -92,11 +92,13 @@ waypoints at the center of the visible polygon. They appear in the regular
 Buildings do not create waypoints.
 
 Choose **Local costmap A*** and press **Generate route**. Before planning, the
-web application automatically requests buildings, water, forest, and scrub in
-a configurable corridor around the mission. Buildings and water become hard
-obstacles in the same A* grid that receives the DEM slope costs. The generated
-polyline is checked again against every mapped hard obstacle before export; a
-failed public-data request or a remaining intersection stops generation.
+web application automatically requests both sources in a configurable corridor
+around the mission. Catastro footprints take precedence over duplicate OSM
+buildings. Buildings and water become hard obstacles in the same A* grid that
+receives the DEM slope costs. The A* domain is limited to the downloaded public
+data coverage, and the generated polyline is checked again with the configured
+safety margin before export. A missing mandatory Catastro response in Spain,
+an endpoint inside an obstacle, or a remaining intersection stops generation.
 
 OSM **Balanced** and **Strict** validate buildings and water as hard
 obstacles; forest cost is local to the A* strategy because the public OSRM
@@ -104,9 +106,11 @@ service does not accept this custom cost layer. Zones are stored in the
 browser. Existing saved forbidden zones remain compatible and are interpreted
 as buildings.
 
-The browser first requests the local
-`/api/osm/semantic` endpoint and falls back to public Overpass endpoints. A
-reproducible local cache can be prepared before field work:
+The browser requests `/api/catastro/buildings` and `/api/osm/semantic` in
+parallel. The first endpoint transforms WGS84 to the correct ETRS89/UTM zone,
+parses official GML and caches each bounded response for seven days. The OSM
+endpoint falls back to public Overpass instances. A reproducible OSM cache can
+be prepared before field work:
 
 ```bash
 python3 scripts/osm_semantic_preload.py \
@@ -114,11 +118,11 @@ python3 scripts/osm_semantic_preload.py \
   --force --serve
 ```
 
-Cached files are written under `web/osm_semantic_cache/` and are not committed.
-Live API downloads are also split into complete local tiles, so regenerating
-the same corridor does not require another Overpass request.
-OpenStreetMap is collaborative public data and may be incomplete; satellite
-imagery is visual context, not an automatic detector in this implementation.
+OSM files are written under `web/osm_semantic_cache/`; Catastro responses are
+written under `data/catastro_cache/`. Neither cache is committed. Use
+`--no-catastro` only for locations outside its coverage or explicit diagnostic
+comparisons. OpenStreetMap remains collaborative and potentially incomplete;
+satellite imagery is visual context, not an automatic detector.
 
 ## Reproduce the paper results
 
@@ -201,7 +205,10 @@ python3 scripts/osm_semantic_preload.py --serve-only
 http://localhost:8000/
 ```
 
-By default this uses the real public Terrain Tiles DEM. To use another real
+By default this uses the real public Terrain Tiles DEM. Its European source is
+appropriate for broad terrain gradients, but interpolation does not turn it
+into a wheel-scale surface model. For Spain, a downloaded CNIG MDT02 GeoTIFF is
+the preferred higher-resolution input. To use another real
 source, pass either `--dem-geotiff /path/to/elevation.tif` or
 `--terrain-world /path/to/world_name`. The orange/red overlay shows
 costly/blocked slope cells and the exported route is the path produced by the
@@ -209,11 +216,12 @@ fused costmap. No source failure falls back to synthetic or flat elevation.
 
 ![Mission route using the visible DEM slope costmap](docs/screenshots/mission-dem-costmap.png)
 
-The versioned example starts west of a mapped OSM building and finishes east
-of it. Its direct segment intersects the footprint; the fused OSM+DEM route
-detours around it:
+The versioned example loads 270 official Catastro footprints plus complementary
+OSM data. Its Catastro+OSM+DEM route contains 236 waypoints, is approximately
+550.6 m long, and has at least 2 m configured clearance from every mapped hard
+obstacle:
 
-![Mission route avoiding a public OSM building with real DEM costs](docs/screenshots/mission-osm-dem-costmap.png)
+![Mission route using Catastro buildings and real DEM costs](docs/screenshots/mission-catastro-dem-costmap.png)
 
 ## Waypoint schema
 
