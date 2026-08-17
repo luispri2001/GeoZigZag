@@ -72,7 +72,21 @@ class WebContractTests(unittest.TestCase):
             "terrainRouteProfile",
             "localAstarWithTerrain",
             "terrainCostLayer",
+            "Slope heatmap",
+            "DEM slope: up to",
             "await generateCostRoute",
+        ):
+            self.assertIn(contract, self.source)
+
+    def test_dem_heatmap_has_visible_slope_bands(self) -> None:
+        for contract in (
+            "terrain-low",
+            "terrain-moderate",
+            "terrain-cost",
+            "terrain-blocked",
+            "terrainSlopePane",
+            "Costly slope",
+            "Blocked slope >",
         ):
             self.assertIn(contract, self.source)
 

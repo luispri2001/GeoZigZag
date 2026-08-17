@@ -235,6 +235,8 @@
     .swatch.semantic-water { background: #2f80ed; }
     .swatch.semantic-forest { background: #3a7d44; }
     .swatch.semantic-scrub { background: #8a6d3b; }
+    .swatch.terrain-low { background: #2a9d8f; }
+    .swatch.terrain-moderate { background: #f2c94c; }
     .swatch.terrain-cost { background: #f4a261; }
     .swatch.terrain-blocked { background: #d62828; }
 
@@ -469,8 +471,8 @@
                   <input id="terrainCostMultiplier" type="number" min="0" step="1" value="20">
                 </div>
                 <div class="field">
-                  <label for="terrainShowLayer">Map overlay</label>
-                  <select id="terrainShowLayer"><option value="yes" selected>Show</option><option value="no">Hide</option></select>
+                  <label for="terrainShowLayer">Slope heatmap</label>
+                  <select id="terrainShowLayer"><option value="yes" selected>Show on map</option><option value="no">Hide</option></select>
                 </div>
               </div>
               <div class="cache-actions terrain-setting">
@@ -658,7 +660,7 @@
           </div>
         </div>
       </section>
-      <details id="mapLegend" class="legend">
+      <details id="mapLegend" class="legend" open>
         <summary>Legend</summary>
         <div id="legendBody" class="legend-body"></div>
       </details>
@@ -729,6 +731,8 @@ function initCenter() {
   return [pts.reduce((s,p)=>s+p[0],0)/pts.length, pts.reduce((s,p)=>s+p[1],0)/pts.length];
 }
 const map = L.map("map", {zoomControl: false, doubleClickZoom: false}).setView(initCenter(), 20);
+map.createPane("terrainSlopePane");
+map.getPane("terrainSlopePane").style.zIndex = "350";
 map.attributionControl.setPosition("bottomleft");
 L.control.zoom({position: "topleft"}).addTo(map);
 const baseLayers = {
@@ -807,8 +811,12 @@ function updateLegend() {
       if (kinds.has(kind)) items.push([`semantic-${kind}`, SEMANTIC_ZONE_STYLE[kind].label]);
     }
     if (terrainCostLayer.getLayers().length) {
-      items.push(["terrain-cost", "DEM slope cost"]);
-      items.push(["terrain-blocked", "Blocked terrain"]);
+      const preferredSlope = Math.max(0.1, safeNum("terrainPreferredSlope", 5));
+      const maximumSlope = Math.max(preferredSlope, safeNum("terrainMaxSlope", 20));
+      items.push(["terrain-low", `DEM slope 0–${(preferredSlope / 2).toFixed(1)}%`]);
+      items.push(["terrain-moderate", `DEM slope ${(preferredSlope / 2).toFixed(1)}–${preferredSlope.toFixed(1)}%`]);
+      items.push(["terrain-cost", `Costly slope ${preferredSlope.toFixed(1)}–${maximumSlope.toFixed(1)}%`]);
+      items.push(["terrain-blocked", `Blocked slope > ${maximumSlope.toFixed(1)}%`]);
     }
   }
   legend.classList.toggle("hidden", items.length === 0);
@@ -2714,7 +2722,7 @@ function applyElevationGrid(context, elevations, settings, source) {
       } else if (!cellIsBlocked(context.grid[row][col])) {
         context.grid[row][col] += penalty;
       }
-      if (blocked || penalty > 0.25) cells.push({row, col, blocked, penalty, slopePct});
+      cells.push({row, col, blocked, penalty, slopePct});
     }
   }
   return {cells, blockedCells, cellCount: context.rows * context.cols, maxSlopePct, maximumPenalty, source};
@@ -2751,21 +2759,50 @@ function terrainRouteProfile(context, elevations, points) {
 function renderTerrainCostCells(context, terrain, settings) {
   if (!settings.showLayer) return;
   const limit = 2200;
-  const stride = Math.max(1, Math.ceil(Math.sqrt(terrain.cells.length / limit)));
-  terrain.cells.forEach((cell, index) => {
-    if (index % stride) return;
-    const [x, y] = context.cellCenter(cell.row, cell.col);
-    const half = context.resolution * 0.5;
-    const southwest = xyToLL(x - half, y - half, context.origin);
-    const northeast = xyToLL(x + half, y + half, context.origin);
-    const relative = terrain.maximumPenalty > 0 ? cell.penalty / terrain.maximumPenalty : 0;
-    L.rectangle([southwest, northeast], {
-      stroke: false,
-      fillColor: cell.blocked ? "#d62828" : "#f4a261",
-      fillOpacity: cell.blocked ? 0.48 : Math.min(0.34, 0.05 + relative * 0.28),
-      interactive: false
-    }).addTo(terrainCostLayer);
-  });
+  const stride = Math.max(1, Math.ceil(Math.sqrt(terrain.cellCount / limit)));
+  for (let row = 0; row < context.rows; row += stride) {
+    for (let col = 0; col < context.cols; col += stride) {
+      const lastRow = Math.min(context.rows - 1, row + stride - 1);
+      const lastCol = Math.min(context.cols - 1, col + stride - 1);
+      let displayedSlopePct = 0, blocked = false;
+      for (let sampleRow = row; sampleRow <= lastRow; sampleRow++) {
+        for (let sampleCol = col; sampleCol <= lastCol; sampleCol++) {
+          const sample = terrain.cells[sampleRow * context.cols + sampleCol];
+          displayedSlopePct = Math.max(displayedSlopePct, sample.slopePct);
+          blocked = blocked || sample.blocked;
+        }
+      }
+      const [minX, minY] = context.cellCenter(row, col);
+      const [maxX, maxY] = context.cellCenter(lastRow, lastCol);
+      const half = context.resolution * 0.5;
+      const southwest = xyToLL(minX - half, minY - half, context.origin);
+      const northeast = xyToLL(maxX + half, maxY + half, context.origin);
+      const lowLimit = settings.preferredSlopePct / 2;
+      const fillColor = blocked
+        ? "#d62828"
+        : displayedSlopePct <= lowLimit
+          ? "#2a9d8f"
+          : displayedSlopePct <= settings.preferredSlopePct
+            ? "#f2c94c"
+            : "#f4a261";
+      const fillOpacity = blocked
+        ? 0.52
+        : displayedSlopePct <= lowLimit
+          ? 0.16
+          : displayedSlopePct <= settings.preferredSlopePct
+            ? 0.27
+            : 0.4;
+      L.rectangle([southwest, northeast], {
+        pane: "terrainSlopePane",
+        stroke: false,
+        fillColor,
+        fillOpacity,
+        interactive: true
+      })
+        .bindTooltip(`DEM slope: up to ${displayedSlopePct.toFixed(1)}%${blocked ? " · blocked" : ""}`, {sticky: true})
+        .addTo(terrainCostLayer);
+    }
+  }
 }
 async function localAstarWithTerrain(start, end, buildings, bufferM, preferredResolution, settings, planningBbox = null) {
   const context = buildLocalSemanticGrid(start, end, buildings, bufferM, preferredResolution, true, planningBbox);

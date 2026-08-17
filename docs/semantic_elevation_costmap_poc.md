@@ -61,8 +61,10 @@ in [Terrarium encoding](https://github.com/tilezen/joerd/blob/master/docs/format
 at zoom 15. Downloaded PNG tiles are cached in `data/dem_cache/terrarium/`.
 
 The **Terrain elevation** panel controls preferred slope, impassable slope,
-slope penalty, and overlay visibility. Orange cells have added traversal cost;
-red cells exceed the limit and are blocked. The route summary reports the
+slope penalty, and heatmap visibility. The map uses teal for gentle terrain,
+yellow below the preferred limit, orange for penalised terrain, and red for
+blocked terrain. Hovering a heatmap cell shows its maximum sampled slope. The
+expanded map legend displays the current percentage boundaries. The route summary reports the
 number of blocked cells, the configured robot limits, and the maximum sampled
 slope. It also reports the selected path's ascent, descent, mean absolute
 slope, maximum slope, and elevation range so that DEM use is directly

@@ -210,8 +210,9 @@ appropriate for broad terrain gradients, but interpolation does not turn it
 into a wheel-scale surface model. For Spain, a downloaded CNIG MDT02 GeoTIFF is
 the preferred higher-resolution input. To use another real
 source, pass either `--dem-geotiff /path/to/elevation.tif` or
-`--terrain-world /path/to/world_name`. The orange/red overlay shows
-costly/blocked slope cells and the exported route is the path produced by the
+`--terrain-world /path/to/world_name`. The teal/yellow/orange/red heatmap shows
+gentle, moderate, costly, and blocked slope cells; hovering a cell reports its
+sampled percentage. The exported route is the path produced by the
 fused costmap. **Route details** reports ascent, descent, mean and maximum
 absolute route slope, elevation range, and the configured preferred/blocked
 slope thresholds. No source failure falls back to synthetic or flat elevation.
