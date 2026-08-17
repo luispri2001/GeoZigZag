@@ -235,6 +235,8 @@
     .swatch.semantic-water { background: #2f80ed; }
     .swatch.semantic-forest { background: #3a7d44; }
     .swatch.semantic-scrub { background: #8a6d3b; }
+    .swatch.terrain-cost { background: #f4a261; }
+    .swatch.terrain-blocked { background: #d62828; }
 
     .cache-tools { border: 1px solid var(--line); border-radius: 8px; background: #fbfbf8; padding: 10px; margin: 0 0 10px; }
     .cache-tools.hidden { display: none; }
@@ -432,6 +434,45 @@
             </div>
           </details>
 
+          <details id="terrainSection" class="panel-section hidden" open>
+            <summary>Terrain elevation</summary>
+            <div class="panel-body">
+              <div class="field">
+                <label for="terrainMode">DEM cost layer</label>
+                <select id="terrainMode">
+                  <option value="off" selected>Off</option>
+                  <option value="demo">Demo hill</option>
+                  <option value="server">Terrain server</option>
+                </select>
+              </div>
+              <div class="grid2 terrain-setting">
+                <div class="field">
+                  <label for="terrainPreferredSlope">Preferred slope %</label>
+                  <input id="terrainPreferredSlope" type="number" min="0.1" step="0.5" value="5">
+                </div>
+                <div class="field">
+                  <label for="terrainMaxSlope">Blocked above %</label>
+                  <input id="terrainMaxSlope" type="number" min="0.1" step="0.5" value="20">
+                </div>
+              </div>
+              <div class="grid2 terrain-setting">
+                <div class="field">
+                  <label for="terrainCostMultiplier">Slope cost</label>
+                  <input id="terrainCostMultiplier" type="number" min="0" step="1" value="20">
+                </div>
+                <div class="field">
+                  <label for="terrainShowLayer">Map overlay</label>
+                  <select id="terrainShowLayer"><option value="yes" selected>Show</option><option value="no">Hide</option></select>
+                </div>
+              </div>
+              <div class="cache-actions terrain-setting">
+                <button id="checkTerrainBtn" class="secondary" type="button">Check DEM server</button>
+              </div>
+              <p id="terrainStatus" class="compact-note">Elevation layer disabled.</p>
+              <p id="terrainHint" class="compact-note terrain-setting">Altitude itself has no cost; local slope controls penalty and blocking.</p>
+            </div>
+          </details>
+
           <details id="osmSafetySection" class="panel-section" open>
             <summary>OSM safety</summary>
             <div class="panel-body">
@@ -539,7 +580,7 @@
               <option value="driving">Driving roads</option>
             </select>
           </div>
-          <p id="costRouteNote" class="compact-note hidden">Local A* blocks buildings/water and penalizes forest/scrub.</p>
+          <p id="costRouteNote" class="compact-note hidden">Local A* fuses semantic zones with an optional DEM slope costmap.</p>
         </section>
 
         <section class="map-panel map-route-block" aria-label="Route generation">
@@ -695,6 +736,7 @@ const resultLayer = L.layerGroup().addTo(map);
 const missionLayer = L.layerGroup().addTo(map);
 const publicSemanticLayer = L.layerGroup().addTo(map);
 const manualObstacleLayer = L.layerGroup().addTo(map);
+const terrainCostLayer = L.layerGroup().addTo(map);
 const markerLayer = L.layerGroup().addTo(map);
 
 const rectMarkers = {};
@@ -752,6 +794,10 @@ function updateLegend() {
     if (manualObstacleDraft.length) kinds.add(safeVal("manualObstacleKind", "building"));
     for (const kind of ["building", "water", "forest", "scrub"]) {
       if (kinds.has(kind)) items.push([`semantic-${kind}`, SEMANTIC_ZONE_STYLE[kind].label]);
+    }
+    if (terrainCostLayer.getLayers().length) {
+      items.push(["terrain-cost", "DEM slope cost"]);
+      items.push(["terrain-blocked", "Blocked terrain"]);
     }
   }
   legend.classList.toggle("hidden", items.length === 0);
@@ -2358,7 +2404,7 @@ function astarGrid(grid, start, goal) {
   }
   return [];
 }
-function localAstarAroundBuildings(start, end, buildings, bufferM, preferredResolution = 3, semanticCosts = false) {
+function buildLocalSemanticGrid(start, end, buildings, bufferM, preferredResolution = 3, semanticCosts = false) {
   const bbox = expandBBoxMeters(routeBBox([start, end, ...buildings.flatMap(b => b.ring)]), Math.max(20, bufferM + 10));
   const origin = [(bbox.south + bbox.north) / 2, (bbox.west + bbox.east) / 2];
   const minXY = llToXY(bbox.south, bbox.west, origin);
@@ -2402,15 +2448,143 @@ function localAstarAroundBuildings(start, end, buildings, bufferM, preferredReso
       }
     }
   }
-  const sCell = nearestFreeCell(grid, llToCell(start));
-  const gCell = nearestFreeCell(grid, llToCell(end));
+  return {bbox, origin, minXY, maxXY, widthM, heightM, resolution, cols, rows, grid, cellCenter, llToCell};
+}
+function solveLocalGrid(context, start, end, strictTerrainEndpoints = false) {
+  const {grid, llToCell, cellCenter} = context;
+  const rawStart = llToCell(start), rawGoal = llToCell(end);
+  if (strictTerrainEndpoints && (cellIsBlocked(grid[rawStart[0]][rawStart[1]]) || cellIsBlocked(grid[rawGoal[0]][rawGoal[1]]))) {
+    throw new Error("The start or destination lies on terrain above the configured slope limit.");
+  }
+  const sCell = nearestFreeCell(grid, rawStart);
+  const gCell = nearestFreeCell(grid, rawGoal);
   if (!sCell || !gCell) throw new Error("The start or destination is inside a blocked semantic zone or too close to it.");
   const path = astarGrid(grid, sCell, gCell);
-  if (!path.length) throw new Error("No local A* route accounting for semantic zones was found.");
+  if (!path.length) throw new Error("No local A* route satisfies the semantic and terrain constraints.");
   return path.map(([r, c]) => {
     const xy = cellCenter(r, c);
-    return xyToLL(xy[0], xy[1], origin);
+    return xyToLL(xy[0], xy[1], context.origin);
   });
+}
+function localAstarAroundBuildings(start, end, buildings, bufferM, preferredResolution = 3, semanticCosts = false) {
+  const context = buildLocalSemanticGrid(start, end, buildings, bufferM, preferredResolution, semanticCosts);
+  return solveLocalGrid(context, start, end, false);
+}
+function currentTerrainSettings() {
+  const mode = safeVal("terrainMode", "off");
+  const preferredSlopePct = Math.max(0.1, safeNum("terrainPreferredSlope", 5));
+  const maxSlopePct = Math.max(0.1, safeNum("terrainMaxSlope", 20));
+  const costMultiplier = Math.max(0, safeNum("terrainCostMultiplier", 20));
+  if (mode !== "off" && maxSlopePct < preferredSlopePct) {
+    throw new Error("Blocked slope must be greater than or equal to preferred slope.");
+  }
+  return {
+    mode,
+    preferredSlopePct,
+    maxSlopePct,
+    costMultiplier,
+    showLayer: safeVal("terrainShowLayer", "yes") === "yes"
+  };
+}
+function syntheticElevationGrid(context) {
+  const centerX = (context.minXY[0] + context.maxXY[0]) / 2;
+  const centerY = (context.minXY[1] + context.maxXY[1]) / 2;
+  const sigma = Math.max(8, Math.min(context.widthM, context.heightM) * 0.2);
+  const amplitude = 18;
+  return Array.from({length: context.rows}, (_, row) =>
+    Array.from({length: context.cols}, (_, col) => {
+      const [x, y] = context.cellCenter(row, col);
+      const radius2 = (x - centerX) ** 2 + (y - centerY) ** 2;
+      return 800 + amplitude * Math.exp(-radius2 / (2 * sigma * sigma));
+    })
+  );
+}
+async function loadElevationGrid(context, settings) {
+  if (settings.mode === "demo") {
+    return {elevations: syntheticElevationGrid(context), source: "synthetic demo hill"};
+  }
+  // Request the exact grid footprint rather than the route bbox. Because the
+  // grid dimensions use ceil(), its final cell can extend slightly past that
+  // bbox; these bounds keep server samples aligned with cellCenter().
+  const gridSouthwest = xyToLL(context.minXY[0], context.minXY[1], context.origin);
+  const gridNortheast = xyToLL(
+    context.minXY[0] + context.cols * context.resolution,
+    context.minXY[1] + context.rows * context.resolution,
+    context.origin
+  );
+  const query = new URLSearchParams({
+    south: gridSouthwest[0],
+    west: gridSouthwest[1],
+    north: gridNortheast[0],
+    east: gridNortheast[1],
+    rows: context.rows,
+    cols: context.cols
+  });
+  const response = await fetchWithTimeout(`/api/dem/grid?${query}`, {}, 30000, "DEM grid");
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.error || `DEM server returned HTTP ${response.status}.`);
+  if (payload.schema !== "geozigzag-dem-grid-v1" || !Array.isArray(payload.elevations_m) || payload.elevations_m.length !== context.rows) {
+    throw new Error("DEM server returned an invalid grid.");
+  }
+  if (payload.elevations_m.some(row => !Array.isArray(row) || row.length !== context.cols)) {
+    throw new Error("DEM grid dimensions do not match the local costmap.");
+  }
+  return {elevations: payload.elevations_m, source: payload.source?.type || "terrain server"};
+}
+function applyElevationGrid(context, elevations, settings, source) {
+  const cells = [];
+  let blockedCells = 0, maxSlopePct = 0, maximumPenalty = 0;
+  for (let row = 0; row < context.rows; row++) {
+    const south = Math.max(0, row - 1), north = Math.min(context.rows - 1, row + 1);
+    const ySpan = Math.max(context.resolution, (north - south) * context.resolution);
+    for (let col = 0; col < context.cols; col++) {
+      const west = Math.max(0, col - 1), east = Math.min(context.cols - 1, col + 1);
+      const xSpan = Math.max(context.resolution, (east - west) * context.resolution);
+      const dzdx = (Number(elevations[row][east]) - Number(elevations[row][west])) / xSpan;
+      const dzdy = (Number(elevations[north][col]) - Number(elevations[south][col])) / ySpan;
+      const slopePct = 100 * Math.hypot(dzdx, dzdy);
+      if (!Number.isFinite(slopePct)) throw new Error(`DEM produced an invalid slope at cell ${row},${col}.`);
+      const blocked = slopePct > settings.maxSlopePct;
+      const penalty = settings.costMultiplier * (slopePct / settings.preferredSlopePct) ** 2;
+      maxSlopePct = Math.max(maxSlopePct, slopePct);
+      maximumPenalty = Math.max(maximumPenalty, penalty);
+      if (blocked) {
+        context.grid[row][col] = Infinity;
+        blockedCells += 1;
+      } else if (!cellIsBlocked(context.grid[row][col])) {
+        context.grid[row][col] += penalty;
+      }
+      if (blocked || penalty > 0.25) cells.push({row, col, blocked, penalty, slopePct});
+    }
+  }
+  return {cells, blockedCells, cellCount: context.rows * context.cols, maxSlopePct, maximumPenalty, source};
+}
+function renderTerrainCostCells(context, terrain, settings) {
+  if (!settings.showLayer) return;
+  const limit = 2200;
+  const stride = Math.max(1, Math.ceil(Math.sqrt(terrain.cells.length / limit)));
+  terrain.cells.forEach((cell, index) => {
+    if (index % stride) return;
+    const [x, y] = context.cellCenter(cell.row, cell.col);
+    const half = context.resolution * 0.5;
+    const southwest = xyToLL(x - half, y - half, context.origin);
+    const northeast = xyToLL(x + half, y + half, context.origin);
+    const relative = terrain.maximumPenalty > 0 ? cell.penalty / terrain.maximumPenalty : 0;
+    L.rectangle([southwest, northeast], {
+      stroke: false,
+      fillColor: cell.blocked ? "#d62828" : "#f4a261",
+      fillOpacity: cell.blocked ? 0.48 : Math.min(0.34, 0.05 + relative * 0.28),
+      interactive: false
+    }).addTo(terrainCostLayer);
+  });
+}
+async function localAstarWithTerrain(start, end, buildings, bufferM, preferredResolution, settings) {
+  const context = buildLocalSemanticGrid(start, end, buildings, bufferM, preferredResolution, true);
+  await loadingStep(settings.mode === "server" ? "Loading DEM costmap…" : "Building demo elevation costmap…");
+  const loaded = await loadElevationGrid(context, settings);
+  const terrain = applyElevationGrid(context, loaded.elevations, settings, loaded.source);
+  renderTerrainCostCells(context, terrain, settings);
+  return {points: solveLocalGrid(context, start, end, true), terrain};
 }
 async function generateOsmRoute(ids, interval) {
   const preset = safeVal("osmSafetyPreset", "quick");
@@ -2563,7 +2737,21 @@ async function generateOsmRoute(ids, interval) {
 
   return {points: fullRoute, distance_m: distancePoints(fullRoute), profile, endpointMode, warnings: snapWarnings, zones: finalZones.length, alternativesUsed, astarFallbacks, quickMode: !avoidBuildings};
 }
-function localCostSegment(a, b, interval, startType, endType, semanticZones) {
+async function localCostSegment(a, b, interval, startType, endType, semanticZones, terrainSettings) {
+  if (terrainSettings.mode !== "off") {
+    const planned = await localAstarWithTerrain(
+      a,
+      b,
+      semanticZones,
+      1.5,
+      Math.max(1.5, interval / 2),
+      terrainSettings
+    );
+    return {
+      points: interpolateRoute([a, ...planned.points, b], interval),
+      terrain: planned.terrain
+    };
+  }
   if (semanticZones.length) {
     const astar = localAstarAroundBuildings(
       a,
@@ -2573,22 +2761,25 @@ function localCostSegment(a, b, interval, startType, endType, semanticZones) {
       Math.max(1.5, interval / 2),
       true
     );
-    return interpolateRoute([a, ...astar, b], interval);
+    return {points: interpolateRoute([a, ...astar, b], interval), terrain: null};
   }
   const direct = interpolateRoute([a, b], interval);
   const cost = ((landcoverCost[startType] || 10) + (landcoverCost[endType] || 10)) / 2;
-  if (cost < 30) return direct;
+  if (cost < 30) return {points: direct, terrain: null};
   const origin = a;
   const xy = llToXY(b[0], b[1], origin);
   const length = Math.hypot(xy[0], xy[1]);
   const normal = length > 0 ? [-xy[1]/length, xy[0]/length] : [0, 0];
   const detour = Math.min(30, Math.max(5, length * 0.18));
   const mid = xyToLL(xy[0] * .5 + normal[0] * detour, xy[1] * .5 + normal[1] * detour, origin);
-  return interpolateRoute([a, mid, b], interval);
+  return {points: interpolateRoute([a, mid, b], interval), terrain: null};
 }
-function generateCostRoute(ids, interval) {
+async function generateCostRoute(ids, interval) {
   const route = [];
   const usedZoneIds = new Set();
+  const terrainSettings = currentTerrainSettings();
+  const terrainSummary = {segments: 0, blockedCells: 0, cellCount: 0, maxSlopePct: 0, sources: new Set()};
+  terrainCostLayer.clearLayers();
   for (let i = 0; i < ids.length - 1; i++) {
     const aId = ids[i], bId = ids[i + 1];
     const a = poiById(aId), b = poiById(bId);
@@ -2597,12 +2788,30 @@ function generateCostRoute(ids, interval) {
     const searchBox = expandBBoxMeters(routeBBox([a, b]), 50);
     const zones = semanticZonesForBbox(searchBox);
     zones.forEach(zone => usedZoneIds.add(zone.id));
-    appendRoutePoints(route, localCostSegment(a, b, interval, at, bt, zones));
+    const segment = await localCostSegment(a, b, interval, at, bt, zones, terrainSettings);
+    appendRoutePoints(route, segment.points);
+    if (segment.terrain) {
+      terrainSummary.segments += 1;
+      terrainSummary.blockedCells += segment.terrain.blockedCells;
+      terrainSummary.cellCount += segment.terrain.cellCount;
+      terrainSummary.maxSlopePct = Math.max(terrainSummary.maxSlopePct, segment.terrain.maxSlopePct);
+      terrainSummary.sources.add(segment.terrain.source);
+    }
+  }
+  updateLegend();
+  const terrainStatus = $("terrainStatus");
+  if (terrainStatus && terrainSummary.segments) {
+    terrainStatus.classList.remove("warn");
+    terrainStatus.textContent = `Costmap ready: ${terrainSummary.blockedCells}/${terrainSummary.cellCount} steep cells blocked · max ${terrainSummary.maxSlopePct.toFixed(1)}%.`;
   }
   return {
     points: route,
     distance_m: distancePoints(route),
-    semanticZones: usedZoneIds.size
+    semanticZones: usedZoneIds.size,
+    terrain: terrainSummary.segments ? {
+      ...terrainSummary,
+      sources: [...terrainSummary.sources]
+    } : null
   };
 }
 async function generateMissionRoute() {
@@ -2618,7 +2827,7 @@ async function generateMissionRoute() {
   }
   else if (strategy === "cost") {
     await loadingStep("Calculating local cost route…");
-    result = generateCostRoute(missionStops, interval);
+    result = await generateCostRoute(missionStops, interval);
   } else {
     await loadingStep("Interpolating direct route…");
     const points = interpolateRoute(missionStops.map(poiById), interval);
@@ -2634,6 +2843,12 @@ async function generateMissionRoute() {
         ? `${result.semanticZones} semantic zone(s) included in the local costmap.`
         : "No semantic zones intersected the local planning area."
     );
+    if (result.terrain) {
+      details.push(
+        `DEM costmap: ${result.terrain.segments} segment(s), ${result.terrain.blockedCells}/${result.terrain.cellCount} blocked cells, maximum sampled slope ${result.terrain.maxSlopePct.toFixed(1)}%.`
+      );
+      details.push(`DEM source: ${result.terrain.sources.join(", ")}.`);
+    }
   }
   if (strategy === "osm" && result.quickMode) details.push("Fast OSM mode: snapped endpoints, no forbidden-zone validation.");
   if (result.warnings && result.warnings.length) details.push(...result.warnings);
@@ -2643,10 +2858,13 @@ async function generateMissionRoute() {
     ? "Route generated with warnings. Some waypoints were snapped or fallback routing was used. Open route details for more information."
     : result.zones
       ? `Route generated successfully while avoiding ${result.zones} blocked semantic zone${result.zones === 1 ? "" : "s"}.`
+      : result.terrain
+        ? `Route generated successfully with semantic and DEM terrain costs; ${result.terrain.blockedCells} steep cells were blocked.`
       : result.semanticZones
         ? `Route generated successfully with ${result.semanticZones} semantic zone${result.semanticZones === 1 ? "" : "s"} in the costmap.`
       : "Route generated successfully.";
-  return {waypoints: toWaypoints(result.points), rows: modeText, strategy, message: summary, details, statusClass: hasWarnings ? "warn" : "ok", detailTitle: "Route details"};
+  const displayedMode = strategy === "cost" && result.terrain ? "cost + DEM" : modeText;
+  return {waypoints: toWaypoints(result.points), rows: displayedMode, strategy, message: summary, details, statusClass: hasWarnings ? "warn" : "ok", detailTitle: "Route details"};
 }
 function landColor(type) {
   return {
@@ -3007,6 +3225,46 @@ function currentOsmSettings() {
   const quickMode = usesOsm && preset === "quick";
   return {strategy, preset, endpoint, rawEndpoint, usesOsm, usesCost, exactAvoid, exactDirect, zonesNeeded, advancedNeeded, strictMode, balancedMode, quickMode};
 }
+function updateTerrainUi() {
+  const mode = safeVal("terrainMode", "off");
+  const section = $("terrainSection");
+  if (section) {
+    section.querySelectorAll(".terrain-setting").forEach(element => {
+      element.classList.toggle("hidden", mode === "off");
+    });
+  }
+  const status = $("terrainStatus");
+  if (!status) return;
+  status.classList.remove("warn");
+  if (mode === "off") status.textContent = "Elevation layer disabled.";
+  else if (mode === "demo") {
+    status.textContent = "Synthetic hill enabled for UI testing; not a real DEM.";
+    status.classList.add("warn");
+  } else status.textContent = "Terrain server selected. Press Check DEM server or Generate route.";
+}
+async function checkTerrainServer() {
+  const status = $("terrainStatus");
+  if (safeVal("terrainMode", "off") !== "server") {
+    updateTerrainUi();
+    setStatus("Select Terrain server to check a real DEM.", "warn");
+    return;
+  }
+  if (status) status.textContent = "Checking terrain server…";
+  try {
+    const response = await fetchWithTimeout("/api/dem/status", {}, 5000, "DEM status");
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.available) throw new Error(payload.error || "No DEM is configured on this server.");
+    const source = payload.source?.type || "configured DEM";
+    if (status) status.textContent = `DEM ready: ${source}${payload.source?.zoom !== undefined ? ` · zoom ${payload.source.zoom}` : ""}.`;
+    setStatus("DEM server is ready for local costmap generation.", "ok");
+  } catch (error) {
+    if (status) {
+      status.textContent = error.message || String(error);
+      status.classList.add("warn");
+    }
+    setStatus(error.message || String(error), "err");
+  }
+}
 function updateVisibleMissionSettings() {
   const s = currentOsmSettings();
   const isMission = appMode === "mission";
@@ -3014,6 +3272,7 @@ function updateVisibleMissionSettings() {
   const obstaclesSection = $("obstaclesSection");
   const mapRoutingPanel = $("mapRoutingPanel");
   const manualObstacleTools = $("manualObstacleTools");
+  const terrainSection = $("terrainSection");
   const advancedPanel = $("osmAdvancedPanel");
   if (mapRoutingPanel) mapRoutingPanel.classList.toggle("hidden", !isMission);
   if (osmSafetySection) osmSafetySection.classList.toggle("hidden", !(isMission && s.usesOsm));
@@ -3022,6 +3281,8 @@ function updateVisibleMissionSettings() {
     if (isMission) obstaclesSection.open = true;
   }
   if (manualObstacleTools) manualObstacleTools.classList.toggle("hidden", !isMission);
+  if (terrainSection) terrainSection.classList.toggle("hidden", !(isMission && s.usesCost));
+  if (!(isMission && s.usesCost)) terrainCostLayer.clearLayers();
   if (advancedPanel) {
     advancedPanel.classList.toggle("hidden", !(isMission && s.advancedNeeded));
     if (s.strictMode) advancedPanel.open = true;
@@ -3048,6 +3309,7 @@ function updateVisibleMissionSettings() {
   }
   const costNote = $("costRouteNote");
   if (costNote) costNote.classList.toggle("hidden", !(isMission && s.usesCost));
+  updateTerrainUi();
 
   updateManualObstacleStatus();
   const hint = $("osmSafetyHint");
@@ -3073,7 +3335,7 @@ function updateVisibleMissionSettings() {
       obstacleHint.textContent = "Fast mode shows semantic zones; building and water avoidance is active in Balanced or Strict.";
     } else {
       obstacleHint.textContent = s.usesCost
-        ? "Local A* blocks buildings/water and penalizes forest/scrub."
+        ? "Local A* combines semantic zones with the optional DEM slope layer."
         : "Semantic zones stay saved here; choose Local costmap A* to account for forest.";
     }
   }
@@ -3200,6 +3462,16 @@ function bindEvents() {
     updatePublicSemanticStatus(rebuildPublicSemanticWaypoints());
     if (appMode === "mission") scheduleGenerate("Public waypoint area threshold changed.", 500);
   });
+  if ($("checkTerrainBtn")) $("checkTerrainBtn").addEventListener("click", checkTerrainServer);
+  for (const id of ["terrainMode", "terrainPreferredSlope", "terrainMaxSlope", "terrainCostMultiplier", "terrainShowLayer"]) {
+    const element = $(id);
+    if (element) element.addEventListener("change", () => {
+      terrainCostLayer.clearLayers();
+      updateTerrainUi();
+      updateLegend();
+      if (appMode === "mission") scheduleGenerate("Terrain costmap setting changed.", 500);
+    });
+  }
   if ($("manualObstacleList")) $("manualObstacleList").addEventListener("click", event => {
     const deleteButton = event.target.closest("button[data-zone-delete]");
     if (deleteButton) {
@@ -3244,6 +3516,8 @@ function init() {
   if (["direct", "osm", "cost"].includes(strategyParam)) $("routeStrategy").value = strategyParam;
   const presetParam = params.get("preset");
   if (["quick", "balanced", "strict"].includes(presetParam)) $("osmSafetyPreset").value = presetParam;
+  const terrainParam = params.get("terrain");
+  if (["off", "demo", "server"].includes(terrainParam)) $("terrainMode").value = terrainParam;
   applyOsmSafetyPreset(false);
   syncBaseView();
   renderPoiPicker();
@@ -3259,6 +3533,9 @@ function init() {
   setInitialReadyState();
   if (params.get("mode") === "mission") setMode("mission");
   else if (fieldMode === "rect") startRectDraw();
+  if (params.get("generate") === "1") {
+    window.setTimeout(() => generate(), 350);
+  }
 }
 init();
 </script>

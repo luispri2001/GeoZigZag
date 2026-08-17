@@ -134,6 +134,28 @@ class OsmSemanticPreloadTests(unittest.TestCase):
         self.assertTrue(bbox.south <= cached[0]["center"][0] <= bbox.north)
         self.assertTrue(bbox.west <= cached[0]["center"][1] <= bbox.east)
 
+    def test_dem_grid_samples_cell_centres(self) -> None:
+        class Elevation:
+            def elevation_m(self, latitude, longitude):
+                return latitude * 10.0 + longitude
+
+        bbox = osm.BBox(42.0, -5.0, 42.2, -4.8)
+        grid = osm.sample_dem_grid(Elevation(), bbox, rows=2, cols=2)
+
+        self.assertEqual(len(grid), 2)
+        self.assertEqual(len(grid[0]), 2)
+        self.assertAlmostEqual(grid[0][0], 42.05 * 10.0 - 4.95)
+        self.assertAlmostEqual(grid[1][1], 42.15 * 10.0 - 4.85)
+
+    def test_dem_grid_rejects_unbounded_cell_count(self) -> None:
+        with self.assertRaisesRegex(ValueError, "40,000-cell"):
+            osm.sample_dem_grid(
+                object(),
+                osm.BBox(42.0, -5.0, 42.1, -4.9),
+                rows=201,
+                cols=200,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

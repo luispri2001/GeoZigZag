@@ -46,8 +46,15 @@ require an explicit in-polygon connector planner.
 `routing.py` provides:
 
 - direct interpolation between ordered targets;
-- semantic-cost A* on an 8-connected local grid; and
+- semantic-cost A* on an 8-connected local grid, optionally fused with a
+  DEM-derived slope penalty/blocking layer; and
 - live or cached OSRM adapters with snap-distance validation.
+
+In the web workflow, the local server exposes bounded `/api/dem/status` and
+`/api/dem/grid` endpoints. They sample raw Terrain-RGB data kept by
+`gazebo_terrain_generator`; absolute altitude is retained for provenance but
+only local slope changes traversability. The browser renders the sampled
+costmap and runs A* over the fused semantic and terrain grid.
 
 Manual and downloaded OpenStreetMap semantic polygons use a deliberately small
 policy:

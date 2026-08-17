@@ -186,6 +186,23 @@ metrics and a costmap preview without requiring Gazebo. Raw Terrain-RGB tiles
 produced by `gazebo_terrain_generator` can be used with `--terrain-world`. See
 [the semantic DEM costmap note](docs/semantic_elevation_costmap_poc.md).
 
+The same POC is available in the existing web mission workflow. Start the
+local server and open the deterministic visual demo:
+
+```bash
+python3 scripts/osm_semantic_preload.py --serve-only
+
+# Open in a browser:
+http://localhost:8000/web/index.html?mode=mission&strategy=cost&terrain=demo&generate=1
+```
+
+For real generator data, install `requirements-dem.txt`, start the server with
+`--terrain-world /path/to/world_name`, and select **Terrain server** in the
+**Terrain elevation** panel. The orange/red overlay shows costly/blocked slope
+cells and the exported route is the path produced by the fused costmap.
+
+![Mission route using the visible DEM slope costmap](docs/screenshots/mission-dem-costmap.png)
+
 ## Waypoint schema
 
 CSV and YAML routes contain:

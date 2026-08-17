@@ -41,6 +41,25 @@ second path avoids the red cells whose slope exceeds the configured limit.
 Outputs include CSV/YAML/GeoJSON route bundles, `summary.json`, and
 `costmap_preview.png`.
 
+## Web POC
+
+The layer is integrated into the current **Mission route** screen and its
+existing **Local costmap A\*** strategy. It is not a separate application.
+Run the server and open the self-generating demo URL:
+
+```bash
+python3 scripts/osm_semantic_preload.py --serve-only
+```
+
+```text
+http://localhost:8000/web/index.html?mode=mission&strategy=cost&terrain=demo&generate=1
+```
+
+The **Terrain elevation** panel controls preferred slope, impassable slope,
+slope penalty, and overlay visibility. Orange cells have added traversal cost;
+red cells exceed the limit and are blocked. The route summary reports the
+number of blocked cells and maximum sampled slope.
+
 ## Using gazebo_terrain_generator data
 
 Install the optional Terrain-RGB reader and keep the generator's raw `dem/`
@@ -48,6 +67,11 @@ working directory:
 
 ```bash
 python3 -m pip install -r requirements-dem.txt
+
+# Serve the existing web UI with this DEM available to the browser.
+python3 scripts/osm_semantic_preload.py \
+  --serve-only \
+  --terrain-world /path/to/world_name
 
 python3 -m geozigzag.semantic_elevation_cli \
   --terrain-world /path/to/world_name \
@@ -64,14 +88,18 @@ The requested padding must remain inside the downloaded DEM coverage. Mapbox
 terrain data is appropriate for broad hills and terrain exclusions, not small
 furrows, ditches or wheel-scale roughness.
 
+The browser never silently substitutes a flat grid when the terrain server is
+missing, a requested tile lies outside the downloaded area, or sampling fails;
+the route generation stops with a visible error.
+
 The current slope magnitude is direction-independent and therefore
 conservative. A later edge-cost model can distinguish ascent, descent and
 cross-slope using the robot heading, but it requires validated vehicle limits.
 
 ## Next integration boundary
 
-The same parameters should be exposed in the web UI and scenario YAML. The
-resulting path remains a global planning route; CropFollow can provide local
-crop-row steering only after the global route has selected a traversable
-corridor. Before robot use, add inflation for footprint/turning radius and a
-separate lateral-slope check.
+The web parameters and slope overlay are now implemented. The resulting path
+remains a global planning route; CropFollow can provide local crop-row steering
+only after the global route has selected a traversable corridor. The next step
+is persisting these parameters in scenario YAML. Before robot use, add
+inflation for footprint/turning radius and a separate lateral-slope check.

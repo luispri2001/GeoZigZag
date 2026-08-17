@@ -35,6 +35,36 @@ class WebContractTests(unittest.TestCase):
         self.assertIn("rebuildPublicSemanticWaypoints", self.source)
         self.assertIn('["forest", "scrub"]', self.source)
 
+    def test_dem_controls_feed_the_local_semantic_astar(self) -> None:
+        for control_id in (
+            "terrainMode",
+            "terrainPreferredSlope",
+            "terrainMaxSlope",
+            "terrainCostMultiplier",
+            "terrainShowLayer",
+        ):
+            self.assertIn(f'id="{control_id}"', self.source)
+        for contract in (
+            "/api/dem/status",
+            "/api/dem/grid",
+            "applyElevationGrid",
+            "localAstarWithTerrain",
+            "terrainCostLayer",
+            "await generateCostRoute",
+        ):
+            self.assertIn(contract, self.source)
+
+    def test_dem_loader_surfaces_errors_instead_of_assuming_flat_ground(self) -> None:
+        loader = self.source.split("async function loadElevationGrid", 1)[1].split(
+            "function applyElevationGrid", 1
+        )[0]
+        self.assertIn("throw new Error", loader)
+        self.assertNotIn("catch (", loader)
+
+    def test_query_string_supports_a_reproducible_dem_demo(self) -> None:
+        self.assertIn('params.get("terrain")', self.source)
+        self.assertIn('params.get("generate") === "1"', self.source)
+
 
 if __name__ == "__main__":
     unittest.main()

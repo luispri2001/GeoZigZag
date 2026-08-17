@@ -98,6 +98,30 @@ def center_bbox(lat: float, lon: float, radius_m: float) -> BBox:
     return ll_bbox([(lat, lon)]).expanded_m(radius_m)
 
 
+def sample_dem_grid(
+    elevation_model: Any, bbox: BBox, rows: int, cols: int
+) -> list[list[float]]:
+    """Sample cell-centre elevations for the browser's local cost grid."""
+    if bbox.south >= bbox.north or bbox.west >= bbox.east:
+        raise ValueError("Invalid DEM bounding-box order.")
+    if rows < 2 or cols < 2:
+        raise ValueError("DEM grid needs at least two rows and columns.")
+    if rows * cols > 40_000:
+        raise ValueError("DEM grid exceeds the 40,000-cell safety limit.")
+    values: list[list[float]] = []
+    for row in range(rows):
+        latitude = bbox.south + (row + 0.5) / rows * (bbox.north - bbox.south)
+        value_row: list[float] = []
+        for col in range(cols):
+            longitude = bbox.west + (col + 0.5) / cols * (bbox.east - bbox.west)
+            elevation = float(elevation_model.elevation_m(latitude, longitude))
+            if not math.isfinite(elevation):
+                raise ValueError(f"DEM returned a non-finite value at ({row}, {col}).")
+            value_row.append(elevation)
+        values.append(value_row)
+    return values
+
+
 def bbox_from_geojson(path: Path, buffer_m: float) -> BBox:
     data = json.loads(path.read_text(encoding="utf-8"))
     points: list[tuple[float, float]] = []
@@ -653,13 +677,19 @@ def preload(args: argparse.Namespace) -> None:
         print("\nWARNING: Overpass answered successfully, but no supported semantic polygons were found.")
         print("Zoom out slightly or confirm that the features are mapped in OpenStreetMap.")
     if args.serve:
-        serve(args.port, auto_port=args.auto_port, max_port_tries=args.max_port_tries)
+        serve(
+            args.port,
+            auto_port=args.auto_port,
+            max_port_tries=args.max_port_tries,
+            terrain_world=args.terrain_world,
+        )
 
 
 class SemanticRequestHandler(SimpleHTTPRequestHandler):
     """Serve static files and proxy bounded semantic Overpass requests."""
 
     api_max_area_m2 = 9_000_000.0
+    elevation_model: Any | None = None
 
     def _json_response(self, status: int, payload: dict[str, Any]) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -672,6 +702,60 @@ class SemanticRequestHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
+        if parsed.path == "/api/dem/status":
+            model = self.elevation_model
+            provenance = model.provenance() if model is not None else {}
+            self._json_response(
+                200,
+                {
+                    "available": model is not None,
+                    "source": {
+                        key: value
+                        for key, value in provenance.items()
+                        if key not in {"dem_directory"}
+                    },
+                },
+            )
+            return
+        if parsed.path == "/api/dem/grid":
+            try:
+                if self.elevation_model is None:
+                    self._json_response(
+                        503,
+                        {"error": "No DEM configured. Restart the server with --terrain-world."},
+                    )
+                    return
+                query = parse_qs(parsed.query)
+                bbox = BBox(
+                    south=float(query["south"][0]),
+                    west=float(query["west"][0]),
+                    north=float(query["north"][0]),
+                    east=float(query["east"][0]),
+                )
+                rows = int(query["rows"][0])
+                cols = int(query["cols"][0])
+                elevations = sample_dem_grid(self.elevation_model, bbox, rows, cols)
+                provenance = self.elevation_model.provenance()
+                self._json_response(
+                    200,
+                    {
+                        "schema": "geozigzag-dem-grid-v1",
+                        "bbox": bbox.as_dict(),
+                        "rows": rows,
+                        "cols": cols,
+                        "elevations_m": elevations,
+                        "source": {
+                            key: value
+                            for key, value in provenance.items()
+                            if key not in {"dem_directory"}
+                        },
+                    },
+                )
+            except (KeyError, IndexError, TypeError, ValueError) as exc:
+                self._json_response(400, {"error": str(exc)})
+            except Exception as exc:
+                self._json_response(502, {"error": f"DEM sampling failed: {exc}"})
+            return
         if parsed.path != "/api/osm/semantic":
             super().do_GET()
             return
@@ -713,7 +797,23 @@ class SemanticRequestHandler(SimpleHTTPRequestHandler):
             self._json_response(502, {"error": f"Overpass download failed: {exc}"})
 
 
-def serve(port: int, auto_port: bool = True, max_port_tries: int = 20) -> None:
+def serve(
+    port: int,
+    auto_port: bool = True,
+    max_port_tries: int = 20,
+    terrain_world: str | Path | None = None,
+) -> None:
+    SemanticRequestHandler.elevation_model = None
+    if terrain_world:
+        import sys
+
+        if str(REPO_ROOT) not in sys.path:
+            sys.path.insert(0, str(REPO_ROOT))
+        from geozigzag.elevation import MapboxTerrainRgbDirectory
+
+        SemanticRequestHandler.elevation_model = MapboxTerrainRgbDirectory.from_terrain_world(
+            terrain_world
+        )
     handler = partial(SemanticRequestHandler, directory=str(REPO_ROOT))
     last_error: OSError | None = None
     selected_port = port
@@ -735,6 +835,10 @@ def serve(port: int, auto_port: bool = True, max_port_tries: int = 20) -> None:
     print("\nLocal server started.")
     print(f"Open: http://localhost:{selected_port}/web/index.html")
     print("The same server exposes /api/osm/semantic for the public-data button.")
+    if SemanticRequestHandler.elevation_model is not None:
+        print("DEM enabled: /api/dem/status and /api/dem/grid are available.")
+    else:
+        print("DEM disabled. Pass --terrain-world to enable the terrain API.")
     print("Stop with Ctrl+C.\n")
     try:
         server.serve_forever()
@@ -775,13 +879,22 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--port", type=int, default=8000, help="Port for --serve. Default: 8000.")
     parser.add_argument("--auto-port", action=argparse.BooleanOptionalAction, default=True, help="If the port is busy, try the next ports automatically. Default: enabled.")
     parser.add_argument("--max-port-tries", type=int, default=20, help="How many ports to try when --auto-port is enabled. Default: 20.")
+    parser.add_argument(
+        "--terrain-world",
+        help="gazebo_terrain_generator directory containing metadata.json and dem/.",
+    )
     return parser
 
 
 def main() -> None:
     args = build_parser().parse_args()
     if args.serve_only:
-        serve(args.port, auto_port=args.auto_port, max_port_tries=args.max_port_tries)
+        serve(
+            args.port,
+            auto_port=args.auto_port,
+            max_port_tries=args.max_port_tries,
+            terrain_world=args.terrain_world,
+        )
     else:
         preload(args)
 
