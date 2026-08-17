@@ -35,6 +35,7 @@ EARTH_RADIUS_M = 6_378_137.0
 BUILDING_TILE_DEG = 0.0012  # Must match HTML constant.
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUT_DIR = REPO_ROOT / "web" / "osm_semantic_cache"
+DEFAULT_DEM_CACHE = REPO_ROOT / "data" / "dem_cache" / "terrarium"
 ENDPOINTS = [
     "https://overpass-api.de/api/interpreter",
     "https://overpass.private.coffee/api/interpreter",
@@ -120,6 +121,41 @@ def sample_dem_grid(
             value_row.append(elevation)
         values.append(value_row)
     return values
+
+
+def build_elevation_model(
+    *,
+    terrain_world: str | Path | None = None,
+    dem_geotiff: str | Path | None = None,
+    default_real_dem: bool = True,
+    dem_cache: str | Path = DEFAULT_DEM_CACHE,
+    dem_zoom: int = 15,
+) -> Any | None:
+    """Configure one explicit DEM source or the real public default."""
+    import sys
+
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    from geozigzag.elevation import (
+        GeoTiffElevation,
+        MapboxTerrainRgbDirectory,
+        TerrariumTileElevation,
+    )
+
+    if terrain_world:
+        return MapboxTerrainRgbDirectory.from_terrain_world(terrain_world)
+    if dem_geotiff:
+        return GeoTiffElevation(dem_geotiff)
+    if default_real_dem:
+        return TerrariumTileElevation(dem_cache, zoom=dem_zoom)
+    return None
+
+
+def public_dem_provenance(model: Any | None) -> dict[str, Any]:
+    """Remove local filesystem paths before returning provenance to browsers."""
+    provenance = model.provenance() if model is not None else {}
+    private_keys = {"dem_directory", "cache_directory", "path"}
+    return {key: value for key, value in provenance.items() if key not in private_keys}
 
 
 def bbox_from_geojson(path: Path, buffer_m: float) -> BBox:
@@ -682,6 +718,10 @@ def preload(args: argparse.Namespace) -> None:
             auto_port=args.auto_port,
             max_port_tries=args.max_port_tries,
             terrain_world=args.terrain_world,
+            dem_geotiff=args.dem_geotiff,
+            default_real_dem=not args.no_dem,
+            dem_cache=args.dem_cache,
+            dem_zoom=args.dem_zoom,
         )
 
 
@@ -704,16 +744,11 @@ class SemanticRequestHandler(SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path == "/api/dem/status":
             model = self.elevation_model
-            provenance = model.provenance() if model is not None else {}
             self._json_response(
                 200,
                 {
                     "available": model is not None,
-                    "source": {
-                        key: value
-                        for key, value in provenance.items()
-                        if key not in {"dem_directory"}
-                    },
+                    "source": public_dem_provenance(model),
                 },
             )
             return
@@ -735,7 +770,6 @@ class SemanticRequestHandler(SimpleHTTPRequestHandler):
                 rows = int(query["rows"][0])
                 cols = int(query["cols"][0])
                 elevations = sample_dem_grid(self.elevation_model, bbox, rows, cols)
-                provenance = self.elevation_model.provenance()
                 self._json_response(
                     200,
                     {
@@ -744,11 +778,7 @@ class SemanticRequestHandler(SimpleHTTPRequestHandler):
                         "rows": rows,
                         "cols": cols,
                         "elevations_m": elevations,
-                        "source": {
-                            key: value
-                            for key, value in provenance.items()
-                            if key not in {"dem_directory"}
-                        },
+                        "source": public_dem_provenance(self.elevation_model),
                     },
                 )
             except (KeyError, IndexError, TypeError, ValueError) as exc:
@@ -802,18 +832,18 @@ def serve(
     auto_port: bool = True,
     max_port_tries: int = 20,
     terrain_world: str | Path | None = None,
+    dem_geotiff: str | Path | None = None,
+    default_real_dem: bool = True,
+    dem_cache: str | Path = DEFAULT_DEM_CACHE,
+    dem_zoom: int = 15,
 ) -> None:
-    SemanticRequestHandler.elevation_model = None
-    if terrain_world:
-        import sys
-
-        if str(REPO_ROOT) not in sys.path:
-            sys.path.insert(0, str(REPO_ROOT))
-        from geozigzag.elevation import MapboxTerrainRgbDirectory
-
-        SemanticRequestHandler.elevation_model = MapboxTerrainRgbDirectory.from_terrain_world(
-            terrain_world
-        )
+    SemanticRequestHandler.elevation_model = build_elevation_model(
+        terrain_world=terrain_world,
+        dem_geotiff=dem_geotiff,
+        default_real_dem=default_real_dem,
+        dem_cache=dem_cache,
+        dem_zoom=dem_zoom,
+    )
     handler = partial(SemanticRequestHandler, directory=str(REPO_ROOT))
     last_error: OSError | None = None
     selected_port = port
@@ -836,9 +866,11 @@ def serve(
     print(f"Open: http://localhost:{selected_port}/web/index.html")
     print("The same server exposes /api/osm/semantic for the public-data button.")
     if SemanticRequestHandler.elevation_model is not None:
-        print("DEM enabled: /api/dem/status and /api/dem/grid are available.")
+        source = public_dem_provenance(SemanticRequestHandler.elevation_model)
+        print(f"Real DEM enabled: {source.get('type', 'configured source')}.")
+        print("Endpoints: /api/dem/status and /api/dem/grid")
     else:
-        print("DEM disabled. Pass --terrain-world to enable the terrain API.")
+        print("DEM disabled explicitly. Terrain-aware A* will stop with a visible error.")
     print("Stop with Ctrl+C.\n")
     try:
         server.serve_forever()
@@ -879,9 +911,30 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--port", type=int, default=8000, help="Port for --serve. Default: 8000.")
     parser.add_argument("--auto-port", action=argparse.BooleanOptionalAction, default=True, help="If the port is busy, try the next ports automatically. Default: enabled.")
     parser.add_argument("--max-port-tries", type=int, default=20, help="How many ports to try when --auto-port is enabled. Default: 20.")
-    parser.add_argument(
+    dem_source = parser.add_mutually_exclusive_group()
+    dem_source.add_argument(
         "--terrain-world",
         help="gazebo_terrain_generator directory containing metadata.json and dem/.",
+    )
+    dem_source.add_argument(
+        "--dem-geotiff",
+        help="Real single-band elevation GeoTIFF; its CRS is read from the file.",
+    )
+    dem_source.add_argument(
+        "--no-dem",
+        action="store_true",
+        help="Disable the default real AWS Terrain Tiles DEM.",
+    )
+    parser.add_argument(
+        "--dem-cache",
+        default=str(DEFAULT_DEM_CACHE),
+        help="Local cache for downloaded Terrarium tiles. Default: data/dem_cache/terrarium.",
+    )
+    parser.add_argument(
+        "--dem-zoom",
+        type=int,
+        default=15,
+        help="Terrarium zoom, between 0 and 15. Default: 15.",
     )
     return parser
 
@@ -894,6 +947,10 @@ def main() -> None:
             auto_port=args.auto_port,
             max_port_tries=args.max_port_tries,
             terrain_world=args.terrain_world,
+            dem_geotiff=args.dem_geotiff,
+            default_real_dem=not args.no_dem,
+            dem_cache=args.dem_cache,
+            dem_zoom=args.dem_zoom,
         )
     else:
         preload(args)

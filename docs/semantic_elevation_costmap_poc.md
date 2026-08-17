@@ -41,24 +41,42 @@ second path avoids the red cells whose slope exceeds the configured limit.
 Outputs include CSV/YAML/GeoJSON route bundles, `summary.json`, and
 `costmap_preview.png`.
 
-## Web POC
+## Web integration with real elevation
 
 The layer is integrated into the current **Mission route** screen and its
 existing **Local costmap A\*** strategy. It is not a separate application.
-Run the server and open the self-generating demo URL:
+Run the server and open the normal URL:
 
 ```bash
 python3 scripts/osm_semantic_preload.py --serve-only
 ```
 
-```text
-http://localhost:8000/web/index.html?mode=mission&strategy=cost&terrain=demo&generate=1
-```
+Open <http://localhost:8000/>. Mission mode, local A*, and **Real DEM
+(server)** are the defaults. The browser version has no synthetic terrain
+option.
+
+Without an explicit DEM path, the server uses the real worldwide
+[AWS Open Data Terrain Tiles dataset](https://registry.opendata.aws/terrain-tiles/)
+in [Terrarium encoding](https://github.com/tilezen/joerd/blob/master/docs/formats.md)
+at zoom 15. Downloaded PNG tiles are cached in `data/dem_cache/terrarium/`.
 
 The **Terrain elevation** panel controls preferred slope, impassable slope,
 slope penalty, and overlay visibility. Orange cells have added traversal cost;
 red cells exceed the limit and are blocked. The route summary reports the
 number of blocked cells and maximum sampled slope.
+
+Any real georeferenced single-band elevation GeoTIFF can replace the default:
+
+```bash
+python3 -m pip install -r requirements-dem.txt
+python3 scripts/osm_semantic_preload.py \
+  --serve-only \
+  --dem-geotiff /path/to/elevation.tif
+```
+
+Its embedded CRS is used for WGS84 conversion. Elevation values are assumed to
+be metres. Requests outside its bounds or over NoData cells stop route
+generation with a visible error.
 
 ## Using gazebo_terrain_generator data
 
@@ -88,9 +106,9 @@ The requested padding must remain inside the downloaded DEM coverage. Mapbox
 terrain data is appropriate for broad hills and terrain exclusions, not small
 furrows, ditches or wheel-scale roughness.
 
-The browser never silently substitutes a flat grid when the terrain server is
-missing, a requested tile lies outside the downloaded area, or sampling fails;
-the route generation stops with a visible error.
+The browser never silently substitutes a synthetic or flat grid when the
+terrain server is missing, a requested tile lies outside the downloaded area,
+or sampling fails; route generation stops with a visible error.
 
 The current slope magnitude is direction-independent and therefore
 conservative. A later edge-cost model can distinguish ascent, descent and

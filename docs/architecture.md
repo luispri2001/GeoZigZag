@@ -51,10 +51,13 @@ require an explicit in-polygon connector planner.
 - live or cached OSRM adapters with snap-distance validation.
 
 In the web workflow, the local server exposes bounded `/api/dem/status` and
-`/api/dem/grid` endpoints. They sample raw Terrain-RGB data kept by
-`gazebo_terrain_generator`; absolute altitude is retained for provenance but
+`/api/dem/grid` endpoints. The default source is the real AWS Open Data
+Terrarium dataset with a local tile cache. Adapters also sample a real
+single-band GeoTIFF in its embedded CRS or raw Terrain-RGB data kept by
+`gazebo_terrain_generator`. Absolute altitude is retained for provenance but
 only local slope changes traversability. The browser renders the sampled
-costmap and runs A* over the fused semantic and terrain grid.
+costmap and runs A* over the fused semantic and terrain grid. It has no
+synthetic or flat fallback.
 
 Manual and downloaded OpenStreetMap semantic polygons use a deliberately small
 policy:

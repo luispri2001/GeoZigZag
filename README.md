@@ -49,24 +49,28 @@ sudo apt install make latexmk texlive-latex-extra texlive-pictures
 
 ## Web interface
 
-Serve the repository:
+Start the included web/API server:
 
 ```bash
-python3 -m http.server 8000 --bind 127.0.0.1
+python3 scripts/osm_semantic_preload.py --serve-only
 ```
 
-Open <http://127.0.0.1:8000/>. Useful direct links are:
+Open <http://127.0.0.1:8000/>. The normal URL opens **Mission route** with
+**Local costmap A\*** and the real DEM server selected. Useful direct links are:
 
 ```text
 http://127.0.0.1:8000/?mode=coverage
-http://127.0.0.1:8000/?mode=mission&strategy=cost
+http://127.0.0.1:8000/
 http://127.0.0.1:8000/?mode=mission&strategy=osm&preset=balanced
 ```
 
-Map tiles and live OSRM routing need internet access. Direct and local
-cost-aware routing do not. Editing a field, target list, spacing, route mode, or
-semantic zone marks the existing route as pending and disables stale exports;
-press **Generate route** to create a new result.
+The first terrain request downloads real Terrarium elevation tiles from the
+[AWS Open Data Terrain Tiles dataset](https://registry.opendata.aws/terrain-tiles/)
+and caches them under `data/dem_cache/`; later requests for the same area work
+from that local cache. Map tiles, uncached DEM areas, and live OSRM routing need
+internet access. Editing a field, target list, spacing, route mode, or semantic
+zone marks the existing route as pending and disables stale exports; press
+**Generate route** to create a new result.
 
 ### Account for buildings, water, and forest
 
@@ -94,14 +98,7 @@ service does not accept this custom cost layer. Zones are stored in the
 browser. Existing saved forbidden zones remain compatible and are interpreted
 as buildings.
 
-For reliable public downloads, use the included same-origin proxy instead of a
-plain static server:
-
-```bash
-python3 scripts/osm_semantic_preload.py --serve-only
-```
-
-Then open <http://localhost:8000/>. The browser first requests the local
+The browser first requests the local
 `/api/osm/semantic` endpoint and falls back to public Overpass endpoints. A
 reproducible local cache can be prepared before field work:
 
@@ -186,20 +183,21 @@ metrics and a costmap preview without requiring Gazebo. Raw Terrain-RGB tiles
 produced by `gazebo_terrain_generator` can be used with `--terrain-world`. See
 [the semantic DEM costmap note](docs/semantic_elevation_costmap_poc.md).
 
-The same POC is available in the existing web mission workflow. Start the
-local server and open the deterministic visual demo:
+The production web workflow does not use the synthetic hill. Start the server
+and open the normal URL:
 
 ```bash
 python3 scripts/osm_semantic_preload.py --serve-only
 
 # Open in a browser:
-http://localhost:8000/web/index.html?mode=mission&strategy=cost&terrain=demo&generate=1
+http://localhost:8000/
 ```
 
-For real generator data, install `requirements-dem.txt`, start the server with
-`--terrain-world /path/to/world_name`, and select **Terrain server** in the
-**Terrain elevation** panel. The orange/red overlay shows costly/blocked slope
-cells and the exported route is the path produced by the fused costmap.
+By default this uses the real public Terrain Tiles DEM. To use another real
+source, pass either `--dem-geotiff /path/to/elevation.tif` or
+`--terrain-world /path/to/world_name`. The orange/red overlay shows
+costly/blocked slope cells and the exported route is the path produced by the
+fused costmap. No source failure falls back to synthetic or flat elevation.
 
 ![Mission route using the visible DEM slope costmap](docs/screenshots/mission-dem-costmap.png)
 

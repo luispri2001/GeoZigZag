@@ -440,9 +440,8 @@
               <div class="field">
                 <label for="terrainMode">DEM cost layer</label>
                 <select id="terrainMode">
-                  <option value="off" selected>Off</option>
-                  <option value="demo">Demo hill</option>
-                  <option value="server">Terrain server</option>
+                  <option value="server" selected>Real DEM (server)</option>
+                  <option value="off">Off</option>
                 </select>
               </div>
               <div class="grid2 terrain-setting">
@@ -570,7 +569,7 @@
         <section id="mapRoutingPanel" class="map-panel routing-panel hidden" aria-label="Routing mode">
           <div class="map-panel-title">Routing mode</div>
           <div class="grid2">
-            <div class="field"><label for="routeStrategy">Strategy</label><select id="routeStrategy"><option value="direct" selected>Direct interpolation</option><option value="osm">OSM paths (optional)</option><option value="cost">Local costmap A*</option></select></div>
+            <div class="field"><label for="routeStrategy">Strategy</label><select id="routeStrategy"><option value="direct">Direct interpolation</option><option value="osm">OSM paths (optional)</option><option value="cost" selected>Local costmap A*</option></select></div>
             <div class="field"><label for="routeSpacing">Spacing m</label><input id="routeSpacing" type="number" min="1" step="1" value="10"></div>
           </div>
           <div class="field osm-setting">
@@ -2486,23 +2485,7 @@ function currentTerrainSettings() {
     showLayer: safeVal("terrainShowLayer", "yes") === "yes"
   };
 }
-function syntheticElevationGrid(context) {
-  const centerX = (context.minXY[0] + context.maxXY[0]) / 2;
-  const centerY = (context.minXY[1] + context.maxXY[1]) / 2;
-  const sigma = Math.max(8, Math.min(context.widthM, context.heightM) * 0.2);
-  const amplitude = 18;
-  return Array.from({length: context.rows}, (_, row) =>
-    Array.from({length: context.cols}, (_, col) => {
-      const [x, y] = context.cellCenter(row, col);
-      const radius2 = (x - centerX) ** 2 + (y - centerY) ** 2;
-      return 800 + amplitude * Math.exp(-radius2 / (2 * sigma * sigma));
-    })
-  );
-}
 async function loadElevationGrid(context, settings) {
-  if (settings.mode === "demo") {
-    return {elevations: syntheticElevationGrid(context), source: "synthetic demo hill"};
-  }
   // Request the exact grid footprint rather than the route bbox. Because the
   // grid dimensions use ceil(), its final cell can extend slightly past that
   // bbox; these bounds keep server samples aligned with cellCenter().
@@ -2529,7 +2512,7 @@ async function loadElevationGrid(context, settings) {
   if (payload.elevations_m.some(row => !Array.isArray(row) || row.length !== context.cols)) {
     throw new Error("DEM grid dimensions do not match the local costmap.");
   }
-  return {elevations: payload.elevations_m, source: payload.source?.type || "terrain server"};
+  return {elevations: payload.elevations_m, source: payload.source?.dataset || payload.source?.type || "terrain server"};
 }
 function applyElevationGrid(context, elevations, settings, source) {
   const cells = [];
@@ -2580,7 +2563,7 @@ function renderTerrainCostCells(context, terrain, settings) {
 }
 async function localAstarWithTerrain(start, end, buildings, bufferM, preferredResolution, settings) {
   const context = buildLocalSemanticGrid(start, end, buildings, bufferM, preferredResolution, true);
-  await loadingStep(settings.mode === "server" ? "Loading DEM costmap…" : "Building demo elevation costmap…");
+  await loadingStep("Loading real DEM costmap…");
   const loaded = await loadElevationGrid(context, settings);
   const terrain = applyElevationGrid(context, loaded.elevations, settings, loaded.source);
   renderTerrainCostCells(context, terrain, settings);
@@ -3237,16 +3220,13 @@ function updateTerrainUi() {
   if (!status) return;
   status.classList.remove("warn");
   if (mode === "off") status.textContent = "Elevation layer disabled.";
-  else if (mode === "demo") {
-    status.textContent = "Synthetic hill enabled for UI testing; not a real DEM.";
-    status.classList.add("warn");
-  } else status.textContent = "Terrain server selected. Press Check DEM server or Generate route.";
+  else status.textContent = "Real DEM selected. Press Check DEM server or Generate route.";
 }
-async function checkTerrainServer() {
+async function checkTerrainServer(announce = true) {
   const status = $("terrainStatus");
   if (safeVal("terrainMode", "off") !== "server") {
     updateTerrainUi();
-    setStatus("Select Terrain server to check a real DEM.", "warn");
+    if (announce) setStatus("Select Real DEM (server) to check terrain data.", "warn");
     return;
   }
   if (status) status.textContent = "Checking terrain server…";
@@ -3254,15 +3234,15 @@ async function checkTerrainServer() {
     const response = await fetchWithTimeout("/api/dem/status", {}, 5000, "DEM status");
     const payload = await response.json().catch(() => ({}));
     if (!response.ok || !payload.available) throw new Error(payload.error || "No DEM is configured on this server.");
-    const source = payload.source?.type || "configured DEM";
+    const source = payload.source?.dataset || payload.source?.type || "configured DEM";
     if (status) status.textContent = `DEM ready: ${source}${payload.source?.zoom !== undefined ? ` · zoom ${payload.source.zoom}` : ""}.`;
-    setStatus("DEM server is ready for local costmap generation.", "ok");
+    if (announce) setStatus("DEM server is ready for local costmap generation.", "ok");
   } catch (error) {
     if (status) {
       status.textContent = error.message || String(error);
       status.classList.add("warn");
     }
-    setStatus(error.message || String(error), "err");
+    if (announce) setStatus(error.message || String(error), "err");
   }
 }
 function updateVisibleMissionSettings() {
@@ -3517,7 +3497,7 @@ function init() {
   const presetParam = params.get("preset");
   if (["quick", "balanced", "strict"].includes(presetParam)) $("osmSafetyPreset").value = presetParam;
   const terrainParam = params.get("terrain");
-  if (["off", "demo", "server"].includes(terrainParam)) $("terrainMode").value = terrainParam;
+  if (["off", "server"].includes(terrainParam)) $("terrainMode").value = terrainParam;
   applyOsmSafetyPreset(false);
   syncBaseView();
   renderPoiPicker();
@@ -3531,10 +3511,15 @@ function init() {
   updateDownloads();
   if (params.get("robot_gps") === "1") connectRobotGps();
   setInitialReadyState();
-  if (params.get("mode") === "mission") setMode("mission");
-  else if (fieldMode === "rect") startRectDraw();
+  if (params.get("mode") === "coverage") {
+    setMode("coverage");
+    if (fieldMode === "rect") startRectDraw();
+  } else setMode("mission");
   if (params.get("generate") === "1") {
     window.setTimeout(() => generate(), 350);
+  }
+  if (safeVal("terrainMode", "server") === "server") {
+    window.setTimeout(() => checkTerrainServer(false), 50);
   }
 }
 init();

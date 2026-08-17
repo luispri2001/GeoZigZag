@@ -156,6 +156,30 @@ class OsmSemanticPreloadTests(unittest.TestCase):
                 cols=200,
             )
 
+    def test_default_server_model_is_a_real_cached_terrarium_source(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            model = osm.build_elevation_model(dem_cache=temporary)
+
+        self.assertEqual(
+            model.provenance()["type"], "mapzen_terrarium_aws_open_data"
+        )
+
+    def test_dem_api_provenance_does_not_expose_local_paths(self) -> None:
+        class Elevation:
+            def provenance(self):
+                return {
+                    "type": "test",
+                    "path": "/private/elevation.tif",
+                    "cache_directory": "/private/cache",
+                    "dem_directory": "/private/dem",
+                    "zoom": 15,
+                }
+
+        self.assertEqual(
+            osm.public_dem_provenance(Elevation()),
+            {"type": "test", "zoom": 15},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

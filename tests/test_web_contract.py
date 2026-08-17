@@ -61,9 +61,13 @@ class WebContractTests(unittest.TestCase):
         self.assertIn("throw new Error", loader)
         self.assertNotIn("catch (", loader)
 
-    def test_query_string_supports_a_reproducible_dem_demo(self) -> None:
+    def test_normal_url_defaults_to_mission_cost_astar_and_real_dem(self) -> None:
+        self.assertIn('<option value="cost" selected>Local costmap A*</option>', self.source)
+        self.assertIn('<option value="server" selected>Real DEM (server)</option>', self.source)
+        self.assertIn('params.get("mode") === "coverage"', self.source)
         self.assertIn('params.get("terrain")', self.source)
-        self.assertIn('params.get("generate") === "1"', self.source)
+        self.assertNotIn("syntheticElevationGrid", self.source)
+        self.assertNotIn('value="demo"', self.source)
 
 
 if __name__ == "__main__":
