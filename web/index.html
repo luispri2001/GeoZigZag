@@ -2719,6 +2719,35 @@ function applyElevationGrid(context, elevations, settings, source) {
   }
   return {cells, blockedCells, cellCount: context.rows * context.cols, maxSlopePct, maximumPenalty, source};
 }
+function terrainRouteProfile(context, elevations, points) {
+  const samples = points.map(point => {
+    const [row, col] = context.llToCell(point);
+    const elevationM = Number(elevations[row][col]);
+    if (!Number.isFinite(elevationM)) throw new Error("DEM produced an invalid route elevation sample.");
+    return {point, elevationM};
+  });
+  let distanceM = 0, ascentM = 0, descentM = 0, maxSlopePct = 0, absoluteRiseM = 0;
+  for (let index = 1; index < samples.length; index++) {
+    const horizontalM = distanceLatLng(samples[index - 1].point, samples[index].point);
+    if (horizontalM < 0.25) continue;
+    const riseM = samples[index].elevationM - samples[index - 1].elevationM;
+    distanceM += horizontalM;
+    absoluteRiseM += Math.abs(riseM);
+    if (riseM > 0) ascentM += riseM;
+    else descentM += -riseM;
+    maxSlopePct = Math.max(maxSlopePct, 100 * Math.abs(riseM) / horizontalM);
+  }
+  const elevationsM = samples.map(sample => sample.elevationM);
+  return {
+    distanceM,
+    ascentM,
+    descentM,
+    meanAbsoluteSlopePct: distanceM > 0 ? 100 * absoluteRiseM / distanceM : 0,
+    maxSlopePct,
+    minElevationM: Math.min(...elevationsM),
+    maxElevationM: Math.max(...elevationsM)
+  };
+}
 function renderTerrainCostCells(context, terrain, settings) {
   if (!settings.showLayer) return;
   const limit = 2200;
@@ -2748,7 +2777,9 @@ async function localAstarWithTerrain(start, end, buildings, bufferM, preferredRe
   const loaded = await loadElevationGrid(context, settings);
   const terrain = applyElevationGrid(context, loaded.elevations, settings, loaded.source);
   renderTerrainCostCells(context, terrain, settings);
-  return {points: solveLocalGrid(context, start, end, true), terrain};
+  const points = solveLocalGrid(context, start, end, true);
+  terrain.routeProfile = terrainRouteProfile(context, loaded.elevations, [start, ...points, end]);
+  return {points, terrain};
 }
 async function generateOsmRoute(ids, interval) {
   const preset = safeVal("osmSafetyPreset", "quick");
@@ -2946,7 +2977,23 @@ async function generateCostRoute(ids, interval) {
   const usedZoneIds = new Set();
   const terrainSettings = currentTerrainSettings();
   const safetyBufferM = Math.max(0.5, Math.min(25, safeNum("semanticSafetyBuffer", 2)));
-  const terrainSummary = {segments: 0, blockedCells: 0, cellCount: 0, maxSlopePct: 0, sources: new Set()};
+  const terrainSummary = {
+    segments: 0,
+    blockedCells: 0,
+    cellCount: 0,
+    maxSlopePct: 0,
+    routeDistanceM: 0,
+    routeAscentM: 0,
+    routeDescentM: 0,
+    routeAbsoluteRiseM: 0,
+    routeMaxSlopePct: 0,
+    routeMinElevationM: Infinity,
+    routeMaxElevationM: -Infinity,
+    preferredSlopePct: terrainSettings.preferredSlopePct,
+    blockedAboveSlopePct: terrainSettings.maxSlopePct,
+    costMultiplier: terrainSettings.costMultiplier,
+    sources: new Set()
+  };
   terrainCostLayer.clearLayers();
   if (terrainSettings.mode === "off" && $("terrainStatus")) {
     $("terrainStatus").classList.remove("warn");
@@ -2970,6 +3017,14 @@ async function generateCostRoute(ids, interval) {
       terrainSummary.cellCount += segment.terrain.cellCount;
       terrainSummary.maxSlopePct = Math.max(terrainSummary.maxSlopePct, segment.terrain.maxSlopePct);
       terrainSummary.sources.add(segment.terrain.source);
+      const profile = segment.terrain.routeProfile;
+      terrainSummary.routeDistanceM += profile.distanceM;
+      terrainSummary.routeAscentM += profile.ascentM;
+      terrainSummary.routeDescentM += profile.descentM;
+      terrainSummary.routeAbsoluteRiseM += profile.ascentM + profile.descentM;
+      terrainSummary.routeMaxSlopePct = Math.max(terrainSummary.routeMaxSlopePct, profile.maxSlopePct);
+      terrainSummary.routeMinElevationM = Math.min(terrainSummary.routeMinElevationM, profile.minElevationM);
+      terrainSummary.routeMaxElevationM = Math.max(terrainSummary.routeMaxElevationM, profile.maxElevationM);
     }
   }
   const routeArea = expandBBoxMeters(routeBBox(route), safetyBufferM + 2);
@@ -2986,7 +3041,7 @@ async function generateCostRoute(ids, interval) {
   const terrainStatus = $("terrainStatus");
   if (terrainStatus && terrainSummary.segments) {
     terrainStatus.classList.remove("warn");
-    terrainStatus.textContent = `Costmap ready: ${terrainSummary.blockedCells}/${terrainSummary.cellCount} steep cells blocked · max ${terrainSummary.maxSlopePct.toFixed(1)}%.`;
+    terrainStatus.textContent = `Costmap ready: ${terrainSummary.blockedCells}/${terrainSummary.cellCount} steep cells blocked · route max ${terrainSummary.routeMaxSlopePct.toFixed(1)}% · grid max ${terrainSummary.maxSlopePct.toFixed(1)}%.`;
   }
   return {
     points: route,
@@ -2996,6 +3051,9 @@ async function generateCostRoute(ids, interval) {
     safetyBufferM,
     terrain: terrainSummary.segments ? {
       ...terrainSummary,
+      routeMeanAbsoluteSlopePct: terrainSummary.routeDistanceM > 0
+        ? 100 * terrainSummary.routeAbsoluteRiseM / terrainSummary.routeDistanceM
+        : 0,
       sources: [...terrainSummary.sources]
     } : null
   };
@@ -3045,7 +3103,10 @@ async function generateMissionRoute() {
     );
     if (result.terrain) {
       details.push(
-        `DEM costmap: ${result.terrain.segments} segment(s), ${result.terrain.blockedCells}/${result.terrain.cellCount} blocked cells, maximum sampled slope ${result.terrain.maxSlopePct.toFixed(1)}%.`
+        `DEM costmap: ${result.terrain.segments} segment(s), ${result.terrain.blockedCells}/${result.terrain.cellCount} blocked cells, grid maximum ${result.terrain.maxSlopePct.toFixed(1)}%; preferred ${result.terrain.preferredSlopePct.toFixed(1)}%, blocked above ${result.terrain.blockedAboveSlopePct.toFixed(1)}%, cost multiplier ${result.terrain.costMultiplier.toFixed(1)}.`
+      );
+      details.push(
+        `Route terrain profile: ${result.terrain.routeAscentM.toFixed(1)} m ascent, ${result.terrain.routeDescentM.toFixed(1)} m descent, mean absolute slope ${result.terrain.routeMeanAbsoluteSlopePct.toFixed(1)}%, maximum ${result.terrain.routeMaxSlopePct.toFixed(1)}%, elevation ${result.terrain.routeMinElevationM.toFixed(1)}–${result.terrain.routeMaxElevationM.toFixed(1)} m.`
       );
       details.push(`DEM source: ${result.terrain.sources.join(", ")}.`);
     }

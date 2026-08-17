@@ -63,7 +63,10 @@ at zoom 15. Downloaded PNG tiles are cached in `data/dem_cache/terrarium/`.
 The **Terrain elevation** panel controls preferred slope, impassable slope,
 slope penalty, and overlay visibility. Orange cells have added traversal cost;
 red cells exceed the limit and are blocked. The route summary reports the
-number of blocked cells and maximum sampled slope.
+number of blocked cells, the configured robot limits, and the maximum sampled
+slope. It also reports the selected path's ascent, descent, mean absolute
+slope, maximum slope, and elevation range so that DEM use is directly
+verifiable from **Route details**.
 
 Public semantic data is loaded before the terrain-aware A* runs. In Spain,
 Catastro INSPIRE Buildings is authoritative for building footprints and OSM

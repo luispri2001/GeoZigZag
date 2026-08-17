@@ -69,9 +69,21 @@ class WebContractTests(unittest.TestCase):
             "/api/dem/status",
             "/api/dem/grid",
             "applyElevationGrid",
+            "terrainRouteProfile",
             "localAstarWithTerrain",
             "terrainCostLayer",
             "await generateCostRoute",
+        ):
+            self.assertIn(contract, self.source)
+
+    def test_route_details_expose_dem_profile_and_robot_limits(self) -> None:
+        for contract in (
+            "routeAscentM",
+            "routeDescentM",
+            "routeMeanAbsoluteSlopePct",
+            "routeMaxSlopePct",
+            "blockedAboveSlopePct",
+            "Route terrain profile:",
         ):
             self.assertIn(contract, self.source)
 

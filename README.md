@@ -212,7 +212,9 @@ the preferred higher-resolution input. To use another real
 source, pass either `--dem-geotiff /path/to/elevation.tif` or
 `--terrain-world /path/to/world_name`. The orange/red overlay shows
 costly/blocked slope cells and the exported route is the path produced by the
-fused costmap. No source failure falls back to synthetic or flat elevation.
+fused costmap. **Route details** reports ascent, descent, mean and maximum
+absolute route slope, elevation range, and the configured preferred/blocked
+slope thresholds. No source failure falls back to synthetic or flat elevation.
 
 ![Mission route using the visible DEM slope costmap](docs/screenshots/mission-dem-costmap.png)
 

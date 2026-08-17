@@ -88,7 +88,9 @@ ordered mission targets plus the configured corridor buffer. The server stores
 tile-aligned responses in the semantic cache. Route planning begins only after
 the public response is available, then fuses the semantic grid with the DEM
 slope grid. A final polygon-intersection check prevents export if the generated
-route still touches a mapped building or water zone.
+route still touches a mapped building or water zone. The web result retains a
+terrain profile for the chosen path (ascent, descent, mean and maximum absolute
+slope, and elevation range) alongside the complete-grid traversability metrics.
 
 `metrics.py` counts polyline heading changes of at least 30 degrees. This is not
 a dynamically feasible steering or headland-turn metric.
