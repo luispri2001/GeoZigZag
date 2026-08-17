@@ -1,0 +1,2 @@
+# Optional dependency for reading gazebo_terrain_generator Terrain-RGB tiles.
+Pillow>=9,<13

@@ -169,6 +169,21 @@ python3 -m geozigzag.cli --out outputs/demo
 
 It generates coverage, direct mission, and local cost-aware mission routes.
 
+## Elevation-aware coverage POC
+
+An offline proof of concept now compares crop-row orientations using elevation,
+route grade and a hard maximum-grade constraint. Run the deterministic demo:
+
+```bash
+python3 -m geozigzag.elevation_cli --demo --out outputs/elevation-poc
+```
+
+It exports candidate metrics and the selected 3-D route without requiring
+Gazebo. Raw Terrain-RGB tiles produced in a `gazebo_terrain_generator` working
+directory can be used with `--terrain-world`. See
+[the elevation-aware POC note](docs/elevation_aware_poc.md) for the real-DEM
+command, cost definition and limitations.
+
 ## Waypoint schema
 
 CSV and YAML routes contain:

@@ -180,7 +180,11 @@ def generate_zigzag_polygon(
     forward = True
     for sweep in sweep_positions:
         row_intersections = intersections(sweep)
-        intervals = list(zip(row_intersections[0::2], row_intersections[1::2]))
+        intervals = [
+            (low, high)
+            for low, high in zip(row_intersections[0::2], row_intersections[1::2])
+            if high - low > 1e-6
+        ]
         if not intervals:
             continue
         if not forward:
