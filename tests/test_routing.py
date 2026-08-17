@@ -1,7 +1,9 @@
 import io
 import json
+import math
 import unittest
 
+from geozigzag.geometry import ll_to_xy, xy_to_ll
 from geozigzag.metrics import forbidden_zone_intersections
 from geozigzag.routing import (
     ExternalRoutingError,
@@ -12,6 +14,7 @@ from geozigzag.routing import (
     generate_osrm_route,
     load_geojson,
 )
+from geozigzag.terrain_costmap import ElevationCostConfig
 
 
 class _Response:
@@ -26,6 +29,34 @@ class _Response:
 
     def read(self):
         return json.dumps(self.payload).encode()
+
+
+class _GaussianHill:
+    def __init__(self, origin, amplitude_m=10.0, sigma_m=8.0):
+        self.origin = origin
+        self.amplitude_m = amplitude_m
+        self.sigma_m = sigma_m
+
+    def elevation_m(self, latitude, longitude):
+        x, y = ll_to_xy(latitude, longitude, *self.origin)
+        return self.amplitude_m * math.exp(
+            -(x * x + y * y) / (2.0 * self.sigma_m * self.sigma_m)
+        )
+
+    def provenance(self):
+        return {"type": "test_gaussian_hill"}
+
+
+class _InfiniteStep:
+    def __init__(self, origin):
+        self.origin = origin
+
+    def elevation_m(self, latitude, longitude):
+        x, _ = ll_to_xy(latitude, longitude, *self.origin)
+        return 0.0 if x < 0.0 else 10.0
+
+    def provenance(self):
+        return {"type": "test_infinite_step"}
 
 
 class RoutingTests(unittest.TestCase):
@@ -160,6 +191,75 @@ class RoutingTests(unittest.TestCase):
                         ],
                     }
                 ],
+            )
+
+    def test_dem_slope_layer_routes_around_a_steep_hill(self) -> None:
+        origin = (42.0, -5.0)
+        start = xy_to_ll(-35.0, 0.0, *origin)
+        goal = xy_to_ll(35.0, 0.0, *origin)
+        geojson = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "id": "start",
+                    "type": "Feature",
+                    "properties": {},
+                    "geometry": {"type": "Point", "coordinates": [start[1], start[0]]},
+                },
+                {
+                    "id": "goal",
+                    "type": "Feature",
+                    "properties": {},
+                    "geometry": {"type": "Point", "coordinates": [goal[1], goal[0]]},
+                },
+            ],
+        }
+        route = generate_cost_route(
+            geojson,
+            ["start", "goal"],
+            resolution_m=2.0,
+            padding_m=20.0,
+            elevation_model=_GaussianHill(origin),
+            elevation_config=ElevationCostConfig(
+                preferred_slope_pct=5.0,
+                max_slope_pct=20.0,
+                slope_cost_multiplier=20.0,
+            ),
+        )
+        local_route = [
+            ll_to_xy(point["latitude"], point["longitude"], *origin) for point in route
+        ]
+        self.assertGreater(max(abs(y) for _, y in local_route), 10.0)
+
+    def test_dem_cliff_can_make_the_semantic_goal_unreachable(self) -> None:
+        origin = (42.0, -5.0)
+        start = xy_to_ll(-20.0, 0.0, *origin)
+        goal = xy_to_ll(20.0, 0.0, *origin)
+        geojson = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "id": "start",
+                    "type": "Feature",
+                    "properties": {},
+                    "geometry": {"type": "Point", "coordinates": [start[1], start[0]]},
+                },
+                {
+                    "id": "goal",
+                    "type": "Feature",
+                    "properties": {},
+                    "geometry": {"type": "Point", "coordinates": [goal[1], goal[0]]},
+                },
+            ],
+        }
+        with self.assertRaises(RouteNotFound):
+            generate_cost_route(
+                geojson,
+                ["start", "goal"],
+                resolution_m=2.0,
+                padding_m=10.0,
+                elevation_model=_InfiniteStep(origin),
+                elevation_config=ElevationCostConfig(max_slope_pct=20.0),
             )
 
     def test_osrm_response_exposes_snap_distance(self) -> None:

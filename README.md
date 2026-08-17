@@ -169,20 +169,22 @@ python3 -m geozigzag.cli --out outputs/demo
 
 It generates coverage, direct mission, and local cost-aware mission routes.
 
-## Elevation-aware coverage POC
+## DEM-aware semantic navigation POC
 
-An offline proof of concept now compares crop-row orientations using elevation,
-route grade and a hard maximum-grade constraint. Run the deterministic demo:
+The local semantic A* planner can fuse its building, water, forest, scrub and
+land-cover costs with a DEM-derived slope layer. Steep cells are blocked and
+moderate slopes add traversal cost. Run the deterministic hill demo:
 
 ```bash
-python3 -m geozigzag.elevation_cli --demo --out outputs/elevation-poc
+python3 -m geozigzag.semantic_elevation_cli \
+  --demo \
+  --out outputs/semantic-elevation-poc
 ```
 
-It exports candidate metrics and the selected 3-D route without requiring
-Gazebo. Raw Terrain-RGB tiles produced in a `gazebo_terrain_generator` working
-directory can be used with `--terrain-world`. See
-[the elevation-aware POC note](docs/elevation_aware_poc.md) for the real-DEM
-command, cost definition and limitations.
+It exports the original semantic route, the semantic+DEM route, terrain-layer
+metrics and a costmap preview without requiring Gazebo. Raw Terrain-RGB tiles
+produced by `gazebo_terrain_generator` can be used with `--terrain-world`. See
+[the semantic DEM costmap note](docs/semantic_elevation_costmap_poc.md).
 
 ## Waypoint schema
 

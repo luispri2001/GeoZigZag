@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Protocol, Sequence
 
+from .elevation import ElevationModel
 from .geometry import (
     PointLL,
     ll_to_xy,
@@ -21,6 +22,7 @@ from .geometry import (
     segment_points_xy,
     xy_to_ll,
 )
+from .terrain_costmap import ElevationCostConfig, build_terrain_cost_layer
 
 LANDCOVER_COST = {
     "road": 1.0,
@@ -143,15 +145,19 @@ def generate_cost_route(
     forbidden_zones: Sequence[Sequence[PointLL]] | None = None,
     padding_m: float = 50.0,
     semantic_zones: Sequence[dict[str, Any]] | None = None,
+    elevation_model: ElevationModel | None = None,
+    elevation_config: ElevationCostConfig | None = None,
 ) -> list[dict[str, float]]:
     """Route ordered semantic targets on a local 8-connected cost grid.
 
     Point features influence circular neighborhoods: two cells for ordinary
     land-cover labels and four for water. Legacy forbidden polygons and
     building/water semantic zones are impassable; forest zones carry a high
-    traversal cost. The objective is the sum of cell cost multiplied by
-    cardinal/diagonal step length; it is a planning proxy, not a learned
-    traversability model.
+    traversal cost. When an elevation source is supplied, local DEM slope adds
+    a soft quadratic penalty and cells above the configured robot limit become
+    impassable. Absolute altitude has no cost. The objective is the sum of cell
+    cost multiplied by cardinal/diagonal step length; it is a planning proxy,
+    not a learned traversability model.
     """
     if resolution_m <= 0:
         raise ValueError("Grid resolution must be positive.")
@@ -231,11 +237,29 @@ def generate_cost_route(
                 if point_in_polygon_xy(point, zone):
                     grid[row][col] = max(grid[row][col], SEMANTIC_ZONE_COST[kind])
 
+    if elevation_model is not None:
+        terrain = build_terrain_cost_layer(
+            elevation_model,
+            width,
+            height,
+            resolution_m,
+            to_ll,
+            elevation_config,
+        )
+        for row in range(height):
+            for col in range(width):
+                if terrain.blocked[row][col]:
+                    grid[row][col] = float("inf")
+                elif not math.isinf(grid[row][col]):
+                    grid[row][col] += terrain.penalties[row][col]
+
     route: list[PointLL] = []
     for first, second in zip(waypoints, waypoints[1:]):
         path = _astar(grid, to_cell(first), to_cell(second))
         if not path:
-            raise RouteNotFound("No cost-aware path avoids the configured forbidden zones.")
+            raise RouteNotFound(
+                "No cost-aware path satisfies the configured semantic and terrain constraints."
+            )
         segment = [to_ll(cell) for cell in path]
         # Preserve exact semantic target coordinates while retaining grid geometry.
         segment[0] = first

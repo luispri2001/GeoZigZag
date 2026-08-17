@@ -1,7 +1,7 @@
-"""Elevation sources used by the terrain-aware coverage proof of concept.
+"""Elevation sources used by the semantic terrain-cost layer.
 
 The public contract deliberately returns elevation in metres.  It keeps DEM
-decoding separate from coverage geometry, so a GeoTIFF/LiDAR implementation can
+decoding separate from routing geometry, so a GeoTIFF/LiDAR implementation can
 be added without changing the route planner.
 """
 
@@ -28,18 +28,18 @@ class ElevationModel(Protocol):
 
 
 @dataclass(frozen=True)
-class SyntheticPlaneElevation:
-    """Deterministic tilted plane for tests and the offline demonstration.
-
-    ``east_grade`` and ``north_grade`` are rise/run ratios.  A value of 0.08
-    therefore represents an eight-percent grade in that direction.
-    """
+class SyntheticGaussianHillElevation:
+    """Smooth isolated hill used to demonstrate terrain-cost avoidance."""
 
     origin_latitude: float
     origin_longitude: float
-    base_elevation_m: float = 850.0
-    east_grade: float = 0.01
-    north_grade: float = 0.08
+    amplitude_m: float = 10.0
+    sigma_m: float = 8.0
+    base_elevation_m: float = 800.0
+
+    def __post_init__(self) -> None:
+        if self.sigma_m <= 0:
+            raise ValueError("Gaussian hill sigma must be positive.")
 
     def elevation_m(self, latitude: float, longitude: float) -> float:
         east_m, north_m = ll_to_xy(
@@ -48,16 +48,19 @@ class SyntheticPlaneElevation:
             self.origin_latitude,
             self.origin_longitude,
         )
-        return self.base_elevation_m + self.east_grade * east_m + self.north_grade * north_m
+        radius_squared = east_m * east_m + north_m * north_m
+        return self.base_elevation_m + self.amplitude_m * math.exp(
+            -radius_squared / (2.0 * self.sigma_m * self.sigma_m)
+        )
 
     def provenance(self) -> dict[str, object]:
         return {
-            "type": "synthetic_plane",
+            "type": "synthetic_gaussian_hill",
             "purpose": "offline_test_only",
             "origin_wgs84": [self.origin_latitude, self.origin_longitude],
             "base_elevation_m": self.base_elevation_m,
-            "east_grade": self.east_grade,
-            "north_grade": self.north_grade,
+            "amplitude_m": self.amplitude_m,
+            "sigma_m": self.sigma_m,
         }
 
 

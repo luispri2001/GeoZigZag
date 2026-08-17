@@ -15,10 +15,17 @@ from .planning import (
 )
 
 from .export import export_geojson, export_route_bundle
+from .elevation import ElevationModel, MapboxTerrainRgbDirectory
 from .routing import CachedOSRMClient, ExternalRoutingError, OSRMClient, RouteNotFound, generate_osrm_route
+from .terrain_costmap import ElevationCostConfig, TerrainCostLayer, build_terrain_cost_layer
 
 __all__ = [
     "DEFAULT_FIELD_CORNERS",
+    "ElevationCostConfig",
+    "ElevationModel",
+    "MapboxTerrainRgbDirectory",
+    "TerrainCostLayer",
+    "build_terrain_cost_layer",
     "export_csv",
     "export_geojson",
     "export_route_bundle",
