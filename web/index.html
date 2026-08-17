@@ -681,6 +681,9 @@
   </div>
 
 <script>
+if (location.protocol === "file:") {
+  location.replace(`http://localhost:8000/web/index.html${location.search}${location.hash}`);
+}
 const R = 6378137;
 const initialCorners = {
   nw: [42.614491711416974, -5.563585388952936],
@@ -747,6 +750,7 @@ function initCenter() {
 const map = L.map("map", {zoomControl: false, doubleClickZoom: false}).setView(initCenter(), 20);
 map.createPane("terrainSlopePane");
 map.getPane("terrainSlopePane").style.zIndex = "350";
+const terrainSlopeRenderer = L.canvas({pane: "terrainSlopePane", padding: 0.2});
 map.attributionControl.setPosition("bottomleft");
 L.control.zoom({position: "topleft"}).addTo(map);
 const baseLayers = {
@@ -2647,13 +2651,44 @@ function nearestFreeCell(grid, start, maxRadius = 12) {
 function astarGrid(grid, start, goal) {
   const h = grid.length, w = grid[0].length;
   const key = c => `${c[0]},${c[1]}`;
-  const heap = [[0, start]];
+  const heap = [];
+  function pushHeap(entry) {
+    heap.push(entry);
+    let index = heap.length - 1;
+    while (index > 0) {
+      const parent = Math.floor((index - 1) / 2);
+      if (heap[parent][0] <= entry[0]) break;
+      heap[index] = heap[parent];
+      index = parent;
+    }
+    heap[index] = entry;
+  }
+  function popHeap() {
+    const first = heap[0];
+    const last = heap.pop();
+    if (heap.length && last) {
+      let index = 0;
+      while (true) {
+        const left = index * 2 + 1;
+        const right = left + 1;
+        if (left >= heap.length) break;
+        const child = right < heap.length && heap[right][0] < heap[left][0] ? right : left;
+        if (heap[child][0] >= last[0]) break;
+        heap[index] = heap[child];
+        index = child;
+      }
+      heap[index] = last;
+    }
+    return first;
+  }
   const came = new Map();
   const cost = new Map([[key(start), 0]]);
   const dirs = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
+  pushHeap([0, start, 0]);
   while (heap.length) {
-    heap.sort((a,b) => a[0] - b[0]);
-    const current = heap.shift()[1];
+    const entry = popHeap();
+    const current = entry[1];
+    if (entry[2] !== cost.get(key(current))) continue;
     if (current[0] === goal[0] && current[1] === goal[1]) {
       const path = [current];
       let ck = key(current);
@@ -2679,7 +2714,7 @@ function astarGrid(grid, start, goal) {
         cost.set(nk, newCost);
         came.set(nk, current);
         const priority = newCost + Math.hypot(goal[0] - ny, goal[1] - nx);
-        heap.push([priority, [ny, nx]]);
+        pushHeap([priority, [ny, nx], newCost]);
       }
     }
   }
@@ -2779,7 +2814,7 @@ function currentTerrainSettings() {
     showLayer: safeVal("terrainShowLayer", "yes") === "yes"
   };
 }
-async function loadElevationGrid(context, settings) {
+async function loadElevationGrid(context, settings, runtime = null) {
   // Request the exact grid footprint rather than the route bbox. Because the
   // grid dimensions use ceil(), its final cell can extend slightly past that
   // bbox; these bounds keep server samples aligned with cellCenter().
@@ -2797,6 +2832,9 @@ async function loadElevationGrid(context, settings) {
     rows: context.rows,
     cols: context.cols
   });
+  const cacheKey = query.toString();
+  const cached = runtime?.elevationGrids.get(cacheKey);
+  if (cached) return {...cached, cacheKey, reused: true};
   const response = await fetchWithTimeout(`/api/dem/grid?${query}`, {}, 30000, "DEM grid");
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(payload.error || `DEM server returned HTTP ${response.status}.`);
@@ -2806,7 +2844,9 @@ async function loadElevationGrid(context, settings) {
   if (payload.elevations_m.some(row => !Array.isArray(row) || row.length !== context.cols)) {
     throw new Error("DEM grid dimensions do not match the local costmap.");
   }
-  return {elevations: payload.elevations_m, source: payload.source?.dataset || payload.source?.type || "terrain server"};
+  const loaded = {elevations: payload.elevations_m, source: payload.source?.dataset || payload.source?.type || "terrain server"};
+  runtime?.elevationGrids.set(cacheKey, loaded);
+  return {...loaded, cacheKey, reused: false};
 }
 function applyElevationGrid(context, elevations, settings, source) {
   const cells = [];
@@ -2865,8 +2905,10 @@ function terrainRouteProfile(context, elevations, points) {
     maxElevationM: Math.max(...elevationsM)
   };
 }
-function renderTerrainCostCells(context, terrain, settings) {
+function renderTerrainCostCells(context, terrain, settings, runtime = null, cacheKey = null) {
   if (!settings.showLayer) return;
+  if (cacheKey && runtime?.renderedGridKeys.has(cacheKey)) return;
+  if (cacheKey) runtime?.renderedGridKeys.add(cacheKey);
   const limit = 2200;
   const stride = Math.max(1, Math.ceil(Math.sqrt(terrain.cellCount / limit)));
   for (let row = 0; row < context.rows; row += stride) {
@@ -2903,6 +2945,7 @@ function renderTerrainCostCells(context, terrain, settings) {
             : 0.4;
       L.rectangle([southwest, northeast], {
         pane: "terrainSlopePane",
+        renderer: terrainSlopeRenderer,
         stroke: false,
         fillColor,
         fillOpacity,
@@ -2913,16 +2956,18 @@ function renderTerrainCostCells(context, terrain, settings) {
     }
   }
 }
-async function localAstarWithTerrain(start, end, buildings, bufferM, preferredResolution, settings, planningBbox = null) {
+async function localAstarWithTerrain(start, end, buildings, bufferM, preferredResolution, settings, planningBbox = null, runtime = null) {
   const context = buildLocalSemanticGrid(start, end, buildings, bufferM, preferredResolution, true, planningBbox);
   const semanticStart = context.llToCell(start), semanticGoal = context.llToCell(end);
   if (cellIsBlocked(context.grid[semanticStart[0]][semanticStart[1]]) || cellIsBlocked(context.grid[semanticGoal[0]][semanticGoal[1]])) {
     throw new Error("The start or destination occupies a semantic obstacle cell. Move the waypoint or reduce the configured safety margin.");
   }
   await loadingStep("Loading real DEM costmap…");
-  const loaded = await loadElevationGrid(context, settings);
+  const loaded = await loadElevationGrid(context, settings, runtime);
   const terrain = applyElevationGrid(context, loaded.elevations, settings, loaded.source);
-  renderTerrainCostCells(context, terrain, settings);
+  terrain.gridKey = loaded.cacheKey;
+  terrain.reusedElevationGrid = loaded.reused;
+  renderTerrainCostCells(context, terrain, settings, runtime, loaded.cacheKey);
   const points = solveLocalGrid(context, start, end, true);
   terrain.routeProfile = terrainRouteProfile(context, loaded.elevations, [start, ...points, end]);
   return {points, terrain};
@@ -3078,7 +3123,7 @@ async function generateOsmRoute(ids, interval) {
 
   return {points: fullRoute, distance_m: distancePoints(fullRoute), profile, endpointMode, warnings: snapWarnings, zones: finalZones.length, alternativesUsed, astarFallbacks, quickMode: !avoidBuildings};
 }
-async function localCostSegment(a, b, interval, startType, endType, semanticZones, terrainSettings, safetyBufferM, planningBbox) {
+async function localCostSegment(a, b, interval, startType, endType, semanticZones, terrainSettings, safetyBufferM, planningBbox, terrainRuntime = null) {
   validateHardObstacleEndpoints(a, b, semanticZones, safetyBufferM);
   if (terrainSettings.mode !== "off") {
     const planned = await localAstarWithTerrain(
@@ -3088,7 +3133,8 @@ async function localCostSegment(a, b, interval, startType, endType, semanticZone
       safetyBufferM,
       Math.max(1.5, Math.min(2, interval / 2)),
       terrainSettings,
-      planningBbox
+      planningBbox,
+      terrainRuntime
     );
     return {
       points: interpolateRoute([a, ...planned.points, b], interval),
@@ -3123,6 +3169,7 @@ async function generateCostRoute(ids, interval) {
   const usedZoneIds = new Set();
   const terrainSettings = currentTerrainSettings();
   const safetyBufferM = Math.max(0.5, Math.min(25, safeNum("semanticSafetyBuffer", 2)));
+  const terrainRuntime = {elevationGrids: new Map(), renderedGridKeys: new Set()};
   const terrainSummary = {
     segments: 0,
     blockedCells: 0,
@@ -3138,6 +3185,8 @@ async function generateCostRoute(ids, interval) {
     preferredSlopePct: terrainSettings.preferredSlopePct,
     blockedAboveSlopePct: terrainSettings.maxSlopePct,
     costMultiplier: terrainSettings.costMultiplier,
+    gridKeys: new Set(),
+    reusedElevationGrids: 0,
     sources: new Set()
   };
   terrainCostLayer.clearLayers();
@@ -3155,12 +3204,16 @@ async function generateCostRoute(ids, interval) {
     const planningBbox = publicSemanticCoverageBbox || searchBox;
     const zones = semanticZonesForBbox(planningBbox);
     zones.forEach(zone => usedZoneIds.add(zone.id));
-    const segment = await localCostSegment(a, b, interval, at, bt, zones, terrainSettings, safetyBufferM, planningBbox);
+    const segment = await localCostSegment(a, b, interval, at, bt, zones, terrainSettings, safetyBufferM, planningBbox, terrainRuntime);
     appendRoutePoints(route, segment.points);
     if (segment.terrain) {
       terrainSummary.segments += 1;
-      terrainSummary.blockedCells += segment.terrain.blockedCells;
-      terrainSummary.cellCount += segment.terrain.cellCount;
+      if (!terrainSummary.gridKeys.has(segment.terrain.gridKey)) {
+        terrainSummary.gridKeys.add(segment.terrain.gridKey);
+        terrainSummary.blockedCells += segment.terrain.blockedCells;
+        terrainSummary.cellCount += segment.terrain.cellCount;
+      }
+      if (segment.terrain.reusedElevationGrid) terrainSummary.reusedElevationGrids += 1;
       terrainSummary.maxSlopePct = Math.max(terrainSummary.maxSlopePct, segment.terrain.maxSlopePct);
       terrainSummary.sources.add(segment.terrain.source);
       const profile = segment.terrain.routeProfile;
@@ -3189,6 +3242,7 @@ async function generateCostRoute(ids, interval) {
     terrainStatus.classList.remove("warn");
     terrainStatus.textContent = `Costmap ready: ${terrainSummary.blockedCells}/${terrainSummary.cellCount} steep cells blocked · route max ${terrainSummary.routeMaxSlopePct.toFixed(1)}% · grid max ${terrainSummary.maxSlopePct.toFixed(1)}%.`;
   }
+  const {gridKeys, ...terrainMetrics} = terrainSummary;
   return {
     points: route,
     distance_m: distancePoints(route),
@@ -3196,7 +3250,8 @@ async function generateCostRoute(ids, interval) {
     validatedHardObstacles: hardObstacles.length,
     safetyBufferM,
     terrain: terrainSummary.segments ? {
-      ...terrainSummary,
+      ...terrainMetrics,
+      gridCount: gridKeys.size,
       routeMeanAbsoluteSlopePct: terrainSummary.routeDistanceM > 0
         ? 100 * terrainSummary.routeAbsoluteRiseM / terrainSummary.routeDistanceM
         : 0,

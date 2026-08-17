@@ -95,6 +95,10 @@ slope grid. A final polygon-intersection check prevents export if the generated
 route still touches a mapped building or water zone. The web result retains a
 terrain profile for the chosen path (ascent, descent, mean and maximum absolute
 slope, and elevation range) alongside the complete-grid traversability metrics.
+Within one generation, segments sharing a planning extent reuse the sampled
+DEM matrix and draw one Canvas-backed heatmap. The local A* open set is a binary
+min-heap; this keeps multi-target vegetation missions responsive without
+changing their cost or safety policy.
 
 `metrics.py` counts polyline heading changes of at least 30 degrees. This is not
 a dynamically feasible steering or headland-turn metric.

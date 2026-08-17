@@ -209,6 +209,11 @@ python3 scripts/osm_semantic_preload.py --serve-only
 http://localhost:8000/
 ```
 
+Do not run the application as a standalone `file://` page: it needs the local
+Catastro, OSM and DEM endpoints. If the versioned HTML file is opened directly,
+it now redirects to `http://localhost:8000/web/index.html`; start the server
+first with the command above.
+
 By default this uses the real public Terrain Tiles DEM. Its European source is
 appropriate for broad terrain gradients, but interpolation does not turn it
 into a wheel-scale surface model. For Spain, a downloaded CNIG MDT02 GeoTIFF is
@@ -220,6 +225,10 @@ sampled percentage. The exported route is the path produced by the
 fused costmap. **Route details** reports ascent, descent, mean and maximum
 absolute route slope, elevation range, and the configured preferred/blocked
 slope thresholds. No source failure falls back to synthetic or flat elevation.
+Multi-target missions reuse the same sampled DEM grid and rendered heatmap
+across route segments. The browser A* uses a binary priority heap so automatic
+vegetation targets do not multiply DEM downloads or repeatedly sort the full
+open set.
 
 ![Mission route using the visible DEM slope costmap](docs/screenshots/mission-dem-costmap.png)
 

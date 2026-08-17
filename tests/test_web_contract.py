@@ -120,6 +120,22 @@ class WebContractTests(unittest.TestCase):
         ):
             self.assertIn(contract, self.source)
 
+    def test_large_cost_routes_reuse_dem_and_binary_heap(self) -> None:
+        for contract in (
+            'location.protocol === "file:"',
+            "pushHeap",
+            "popHeap",
+            "elevationGrids: new Map()",
+            "renderedGridKeys: new Set()",
+            "reusedElevationGrid",
+            "terrainSlopeRenderer",
+        ):
+            self.assertIn(contract, self.source)
+        astar = self.source.split("function astarGrid", 1)[1].split(
+            "function buildLocalSemanticGrid", 1
+        )[0]
+        self.assertNotIn("heap.sort", astar)
+
     def test_dem_loader_surfaces_errors_instead_of_assuming_flat_ground(self) -> None:
         loader = self.source.split("async function loadElevationGrid", 1)[1].split(
             "function applyElevationGrid", 1
