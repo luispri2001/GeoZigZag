@@ -436,6 +436,19 @@
                   <label for="publicWaypointMinArea">Minimum resource area (m²)</label>
                   <input id="publicWaypointMinArea" type="number" min="25" max="100000" step="25" value="100">
                 </div>
+                <div class="grid2">
+                  <div class="field">
+                    <label for="publicAutoWaypoints">Vegetation waypoints</label>
+                    <select id="publicAutoWaypoints">
+                      <option value="yes" selected>Auto-add to route</option>
+                      <option value="no">Create only</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label for="publicAutoWaypointLimit">Maximum automatic</label>
+                    <input id="publicAutoWaypointLimit" type="number" min="1" max="20" step="1" value="6">
+                  </div>
+                </div>
                 <div class="cache-actions">
                   <button id="loadPublicSemanticBtn" class="secondary" type="button">Load visible area</button>
                   <button id="clearPublicSemanticBtn" class="secondary danger" type="button">Clear public data</button>
@@ -690,7 +703,7 @@ const poiGeojson = {
     {id:"village_east", properties:{landcover:"pastizal"}, geometry:{type:"Point", coordinates:[-6.200150,42.312900]}}
   ]
 };
-const landcoverCost = {road:1, track:1.5, pastizal:10, arbustivo:30, matorral:80, water:1000};
+const landcoverCost = {road:1, track:1.5, pastizal:10, arbustivo:30, matorral:80, forest:80, scrub:45, water:1000};
 
 let appMode = "coverage";
 let fieldMode = "rect";
@@ -722,6 +735,7 @@ let manualObstacleEditSnapshot = null;
 let publicSemanticZones = [];
 let publicSemanticMetadata = {};
 let publicSemanticCoverageBbox = null;
+let publicSemanticWaypointSummary = {created: 0, autoAdded: 0, rejectedUnsafe: 0, rejectedDuplicate: 0};
 
 // Keep GPS/satellite as the default view; users can switch to the map layer.
 const modeBaseView = {coverage: "gps", mission: "gps"};
@@ -760,6 +774,11 @@ let polyLayer = null;
 let robotMarker = null;
 
 function $(id) { return document.getElementById(id); }
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, character => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  })[character]);
+}
 function safeVal(id, fallback = "") {
   const el = $(id);
   return el && typeof el.value !== "undefined" ? el.value : fallback;
@@ -1600,7 +1619,7 @@ function poiById(id) {
 }
 function poiLabel(id) {
   const f = featureById(id);
-  return {id: f.id, landcover: f.properties.landcover || "unknown"};
+  return {id: f.properties.name || f.id, landcover: f.properties.landcover || "unknown"};
 }
 function uniqueWaypointId(rawName) {
   const fallback = `waypoint_${customWaypointCounter}`;
@@ -1928,7 +1947,7 @@ function publicSemanticKind(tags = {}) {
   if (tags.building) return "building";
   if (tags.natural === "water" || tags.landuse === "reservoir") return "water";
   if (tags.natural === "wood" || tags.landuse === "forest") return "forest";
-  if (tags.natural === "scrub") return "scrub";
+  if (["scrub", "shrubbery", "heath"].includes(tags.natural) || tags.landcover === "shrubs") return "scrub";
   return null;
 }
 function clipSemanticRingToBbox(ring, bbox) {
@@ -2074,6 +2093,12 @@ function publicSemanticQuery(bbox) {
   relation["landuse"="forest"](${bounds});
   way["natural"="scrub"](${bounds});
   relation["natural"="scrub"](${bounds});
+  way["natural"="shrubbery"](${bounds});
+  relation["natural"="shrubbery"](${bounds});
+  way["natural"="heath"](${bounds});
+  relation["natural"="heath"](${bounds});
+  way["landcover"="shrubs"](${bounds});
+  relation["landcover"="shrubs"](${bounds});
 );
 out geom;`;
 }
@@ -2262,27 +2287,69 @@ async function refreshPublicSemanticZones(bbox, rebuildResources = false) {
   drawPublicSemanticZones();
   savePublicSemanticZones();
   updatePublicSemanticStatus(waypointCount);
-  return {counts: publicSemanticCounts(), sources: publicSemanticSourceCounts(), metadata: publicSemanticMetadata, waypointCount, bbox};
+  return {
+    counts: publicSemanticCounts(),
+    sources: publicSemanticSourceCounts(),
+    metadata: publicSemanticMetadata,
+    waypointCount,
+    autoWaypointCount: publicSemanticWaypointSummary.autoAdded,
+    waypointSummary: {...publicSemanticWaypointSummary},
+    bbox
+  };
 }
 async function refreshMissionPublicSemanticZones() {
   const bbox = missionPublicSemanticBbox();
   await loadingStep("Loading Catastro buildings and complementary OSM data…");
-  return refreshPublicSemanticZones(bbox, false);
+  return refreshPublicSemanticZones(bbox, true);
 }
 function removePublicSemanticWaypoints() {
   poiGeojson.features = poiGeojson.features.filter(feature => !feature.properties?.publicSemantic);
   const available = new Set(poiGeojson.features.map(feature => feature.id));
   missionStops = missionStops.filter(id => available.has(id));
 }
+function insertMissionStopWithMinimumDetour(id) {
+  if (missionStops.includes(id)) return;
+  if (missionStops.length < 2) {
+    missionStops.push(id);
+    return;
+  }
+  const point = poiById(id);
+  let bestIndex = 1;
+  let bestDetourM = Infinity;
+  for (let index = 1; index < missionStops.length; index++) {
+    const before = poiById(missionStops[index - 1]);
+    const after = poiById(missionStops[index]);
+    const detourM = distanceLatLng(before, point) + distanceLatLng(point, after) - distanceLatLng(before, after);
+    if (detourM < bestDetourM - 1e-6) {
+      bestDetourM = detourM;
+      bestIndex = index;
+    }
+  }
+  missionStops.splice(bestIndex, 0, id);
+}
 function rebuildPublicSemanticWaypoints() {
+  const manuallySelectedZoneIds = missionStops
+    .map(id => poiGeojson.features.find(feature => feature.id === id))
+    .filter(feature => feature?.properties?.publicSemantic && !feature.properties.autoSelected)
+    .map(feature => feature.properties.semantic_zone_id);
   removePublicSemanticWaypoints();
   const minimumArea = Math.max(25, safeNum("publicWaypointMinArea", 100));
+  const safetyBufferM = Math.max(0.5, Math.min(25, safeNum("semanticSafetyBuffer", 2)));
+  const hardZones = publicSemanticZones.filter(zone => ["building", "water"].includes(zone.kind));
+  let rejectedUnsafe = 0;
   const resources = publicSemanticZones
-    .filter(zone => ["forest", "scrub"].includes(zone.kind) && zone.areaM2 >= minimumArea)
-    .sort((a, b) => b.areaM2 - a.areaM2)
+    .filter(zone => {
+      if (!["forest", "scrub"].includes(zone.kind) || zone.areaM2 < minimumArea) return false;
+      const unsafe = hardZones.some(hardZone => pointHitsSemanticZone(zone.center, hardZone, safetyBufferM));
+      if (unsafe) rejectedUnsafe += 1;
+      return !unsafe;
+    })
+    .sort((a, b) => b.areaM2 - a.areaM2 || String(a.id).localeCompare(String(b.id)))
     .slice(0, 80);
+  const kindCounters = {forest: 0, scrub: 0};
   for (const zone of resources) {
-    const id = `public_${zone.kind}_${String(zone.id).replace(/[^a-zA-Z0-9]+/g, "_")}`;
+    kindCounters[zone.kind] += 1;
+    const id = `public_${zone.kind}_${kindCounters[zone.kind]}`;
     poiGeojson.features.push({
       id,
       type: "Feature",
@@ -2292,11 +2359,46 @@ function rebuildPublicSemanticWaypoints() {
         source: zone.source || "Public semantic data",
         area_m2: Math.round(zone.areaM2),
         semantic_zone_id: zone.id,
-        name: zone.name || id
+        name: zone.name || `${SEMANTIC_ZONE_STYLE[zone.kind].label} ${kindCounters[zone.kind]}`,
+        autoSelected: false
       },
       geometry: {type: "Point", coordinates: [zone.center[1], zone.center[0]]}
     });
   }
+  for (const semanticZoneId of manuallySelectedZoneIds) {
+    const feature = poiGeojson.features.find(candidate =>
+      candidate.properties?.publicSemantic && candidate.properties.semantic_zone_id === semanticZoneId
+    );
+    if (feature) insertMissionStopWithMinimumDetour(feature.id);
+  }
+  const automaticallySelected = [];
+  let rejectedDuplicate = 0;
+  if (safeVal("publicAutoWaypoints", "yes") === "yes" && missionStops.length >= 2) {
+    const limit = Math.max(1, Math.min(20, Math.round(safeNum("publicAutoWaypointLimit", 6))));
+    for (const resource of resources) {
+      const closeToExistingStop = missionStops.some(stopId => distanceLatLng(resource.center, poiById(stopId)) < 20);
+      if (closeToExistingStop || automaticallySelected.some(selected => distanceLatLng(resource.center, selected.center) < 20)) {
+        rejectedDuplicate += 1;
+        continue;
+      }
+      automaticallySelected.push(resource);
+      if (automaticallySelected.length >= limit) break;
+    }
+    for (const resource of automaticallySelected) {
+      const feature = poiGeojson.features.find(candidate =>
+        candidate.properties?.publicSemantic && candidate.properties.semantic_zone_id === resource.id
+      );
+      if (!feature) continue;
+      feature.properties.autoSelected = true;
+      insertMissionStopWithMinimumDetour(feature.id);
+    }
+  }
+  publicSemanticWaypointSummary = {
+    created: resources.length,
+    autoAdded: automaticallySelected.length,
+    rejectedUnsafe,
+    rejectedDuplicate
+  };
   renderPoiPicker();
   renderMissionList();
   if (appMode === "mission") renderMissionMarkers();
@@ -2314,7 +2416,7 @@ function drawPublicSemanticZones() {
       fillOpacity: 0.18,
       interactive: true
     }).addTo(publicSemanticLayer).bindTooltip(
-      `${zone.name || style.label} · ${zone.source || "public data"} · ${Math.round(zone.areaM2)} m²`,
+      `${escapeHtml(zone.name || style.label)} · ${escapeHtml(zone.source || "public data")} · ${Math.round(zone.areaM2)} m²`,
       {direction: "center"}
     );
   }
@@ -2348,7 +2450,7 @@ function updatePublicSemanticStatus(waypointCount = null) {
     : waypointCount;
   const sources = publicSemanticSourceCounts();
   element.textContent = `${counts.building} buildings · ${counts.water} water · ${counts.forest + counts.scrub} vegetation`;
-  element.title = `Catastro ${sources.catastro}, OSM ${sources.osm}. Buildings ${counts.building}, water ${counts.water}, forest ${counts.forest}, scrub ${counts.scrub}; resource waypoints ${resources}.`;
+  element.title = `Catastro ${sources.catastro}, OSM ${sources.osm}. Buildings ${counts.building}, water ${counts.water}, forest ${counts.forest}, scrub ${counts.scrub}; resource waypoints ${resources}, automatically selected ${publicSemanticWaypointSummary.autoAdded}, unsafe centers rejected ${publicSemanticWaypointSummary.rejectedUnsafe}, nearby duplicates skipped ${publicSemanticWaypointSummary.rejectedDuplicate}.`;
 }
 function savePublicSemanticZones() {
   try {
@@ -2380,6 +2482,7 @@ function clearPublicSemanticZones() {
   publicSemanticZones = [];
   publicSemanticMetadata = {};
   publicSemanticCoverageBbox = null;
+  publicSemanticWaypointSummary = {created: 0, autoAdded: 0, rejectedUnsafe: 0, rejectedDuplicate: 0};
   try { localStorage.removeItem(PUBLIC_SEMANTIC_STORAGE_KEY); } catch (_) {}
   removePublicSemanticWaypoints();
   drawPublicSemanticZones();
@@ -2401,9 +2504,9 @@ async function loadVisiblePublicSemanticZones() {
   setGenerateBusy(true);
   setLoadingVisible(true, "Downloading Catastro buildings and complementary OSM data…");
   try {
-    const {counts, sources, waypointCount} = await refreshPublicSemanticZones(bbox, true);
+    const {counts, sources, waypointCount, autoWaypointCount} = await refreshPublicSemanticZones(bbox, true);
     setStatus(
-      `Public data loaded: ${counts.building} buildings (${sources.catastro} Catastro, ${sources.osm} OSM zones), ${counts.water} water, ${counts.forest} forest, ${counts.scrub} scrub; ${waypointCount} resource waypoints.`,
+      `Public data loaded: ${counts.building} buildings (${sources.catastro} Catastro, ${sources.osm} OSM zones), ${counts.water} water, ${counts.forest} forest, ${counts.scrub} scrub; ${waypointCount} resource waypoints, ${autoWaypointCount} added automatically.`,
       "ok"
     );
     if (appMode === "mission") scheduleGenerate("Public semantic data loaded.", 500);
@@ -2591,13 +2694,19 @@ function buildLocalSemanticGrid(start, end, buildings, bufferM, preferredResolut
   const maxXY = llToXY(bbox.north, bbox.east, origin);
   const widthM = Math.max(1, maxXY[0] - minXY[0]);
   const heightM = Math.max(1, maxXY[1] - minXY[1]);
-  const resolution = Math.max(preferredResolution, widthM / 260, heightM / 260, 1.5);
+  let resolution = Math.max(preferredResolution, widthM / 260, heightM / 260, 1.5);
+  let cols = Math.max(3, Math.ceil(widthM / resolution));
+  let rows = Math.max(3, Math.ceil(heightM / resolution));
+  const maximumDemCells = 39000;
+  if (cols * rows > maximumDemCells) {
+    resolution *= Math.sqrt((cols * rows) / maximumDemCells) * 1.01;
+    cols = Math.max(3, Math.ceil(widthM / resolution));
+    rows = Math.max(3, Math.ceil(heightM / resolution));
+  }
   // A* connects cell centres, so rasterise obstacles with half a cell diagonal
   // of extra clearance. This makes the continuous polyline honour bufferM
   // instead of merely keeping sampled cell centres outside the footprint.
   const rasterBufferM = bufferM + resolution * Math.SQRT2 / 2;
-  const cols = Math.max(3, Math.ceil(widthM / resolution));
-  const rows = Math.max(3, Math.ceil(heightM / resolution));
   if (cols * rows > 60000) throw new Error("The local A* fallback would be too large for this area. Move the waypoints closer together or increase the resolution.");
   const buildingXY = buildings.map(b => ({
     kind: SEMANTIC_ZONE_STYLE[b.kind] ? b.kind : "building",
@@ -3128,6 +3237,15 @@ async function generateMissionRoute() {
         `Fused public corridor: ${counts.building} buildings, ${counts.water} water, ${counts.forest} forest, ${counts.scrub} scrub.`
       );
       details.push(`Source provenance: ${sources.catastro} Catastro polygon(s), ${sources.osm} complementary OSM polygon(s).`);
+      details.push(
+        `Vegetation targets: ${result.publicData.waypointCount} forest/scrub waypoint(s) created, ${result.publicData.autoWaypointCount} inserted automatically into the mission.`
+      );
+      const waypointSummary = result.publicData.waypointSummary;
+      if (waypointSummary?.rejectedUnsafe || waypointSummary?.rejectedDuplicate) {
+        details.push(
+          `Vegetation target filtering: ${waypointSummary.rejectedUnsafe} unsafe center(s) rejected, ${waypointSummary.rejectedDuplicate} nearby duplicate(s) skipped.`
+        );
+      }
       for (const warning of result.publicData.metadata?.warnings || []) details.push(warning);
     }
     details.push(
@@ -3185,9 +3303,10 @@ function renderPoiPicker() {
   grid.innerHTML = poiGeojson.features.map(f => {
     const selected = missionStops.includes(f.id);
     const type = f.properties.landcover || "unknown";
+    const name = f.properties.name || f.id;
     return `<button type="button" class="poi-card ${selected ? "selected" : ""}" data-id="${f.id}">
       <span class="poi-dot" style="background:${landColor(type)}"></span>
-      <span class="poi-main"><span class="poi-name">${f.id}</span><span class="poi-type">${type}</span></span>
+      <span class="poi-main"><span class="poi-name">${escapeHtml(name)}</span><span class="poi-type">${escapeHtml(type)}</span></span>
       <span class="poi-add">+</span>
     </button>`;
   }).join("");
@@ -3202,7 +3321,7 @@ function renderMissionList() {
     const label = poiLabel(id);
     return `<div class="mission-step">
       <span class="mission-index">${i+1}</span>
-      <span><strong>${label.id}</strong><br><small style="color:var(--muted)">${label.landcover}</small></span>
+      <span><strong>${escapeHtml(label.id)}</strong><br><small style="color:var(--muted)">${escapeHtml(label.landcover)}</small></span>
       <span class="mission-controls">
         <button class="icon-btn" type="button" data-action="up" data-index="${i}" title="Up">↑</button>
         <button class="icon-btn" type="button" data-action="down" data-index="${i}" title="Down">↓</button>
@@ -3267,9 +3386,10 @@ function renderMissionMarkers() {
   missionLayer.clearLayers();
   poiGeojson.features.forEach(f => {
     const type = f.properties.landcover || "unknown";
+    const name = f.properties.name || f.id;
     const marker = L.circleMarker([f.geometry.coordinates[1], f.geometry.coordinates[0]], {
       radius: 7, color: "#fff", weight: 2, fillColor: landColor(type), fillOpacity: .95
-    }).bindTooltip(`${f.id} - ${type}`).addTo(missionLayer);
+    }).bindTooltip(`${escapeHtml(name)} - ${escapeHtml(type)}`).addTo(missionLayer);
     marker.on("click", event => {
       L.DomEvent.stopPropagation(event);
       addMissionStop(f.id);
@@ -3755,10 +3875,12 @@ function bindEvents() {
   if ($("clearManualObstacleBtn")) $("clearManualObstacleBtn").addEventListener("click", clearManualObstacles);
   if ($("loadPublicSemanticBtn")) $("loadPublicSemanticBtn").addEventListener("click", loadVisiblePublicSemanticZones);
   if ($("clearPublicSemanticBtn")) $("clearPublicSemanticBtn").addEventListener("click", clearPublicSemanticZones);
-  if ($("publicWaypointMinArea")) $("publicWaypointMinArea").addEventListener("change", () => {
-    updatePublicSemanticStatus(rebuildPublicSemanticWaypoints());
-    if (appMode === "mission") scheduleGenerate("Public waypoint area threshold changed.", 500);
-  });
+  for (const id of ["publicWaypointMinArea", "publicAutoWaypoints", "publicAutoWaypointLimit"]) {
+    if ($(id)) $(id).addEventListener("change", () => {
+      updatePublicSemanticStatus(rebuildPublicSemanticWaypoints());
+      if (appMode === "mission") scheduleGenerate("Automatic vegetation waypoint settings changed.", 500);
+    });
+  }
   for (const id of ["publicRouteBuffer", "semanticSafetyBuffer"]) {
     if ($(id)) $(id).addEventListener("change", () => {
       if (appMode === "mission") scheduleGenerate("Public-data safety setting changed.", 500);

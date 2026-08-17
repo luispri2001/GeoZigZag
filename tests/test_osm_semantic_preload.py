@@ -30,6 +30,9 @@ class OsmSemanticPreloadTests(unittest.TestCase):
             '["natural"="wood"]',
             '["landuse"="forest"]',
             '["natural"="scrub"]',
+            '["natural"="shrubbery"]',
+            '["natural"="heath"]',
+            '["landcover"="shrubs"]',
         ):
             self.assertIn(expression, query)
         self.assertIn("out geom;", query)
@@ -69,6 +72,15 @@ class OsmSemanticPreloadTests(unittest.TestCase):
             self.assertGreater(feature["areaM2"], 50.0)
             self.assertEqual(len(feature["center"]), 2)
             self.assertEqual(feature["source"], "OpenStreetMap")
+
+    def test_equivalent_shrub_tags_are_normalized_to_scrub(self) -> None:
+        for tags in (
+            {"natural": "scrub"},
+            {"natural": "shrubbery"},
+            {"natural": "heath"},
+            {"landcover": "shrubs"},
+        ):
+            self.assertEqual(osm.semantic_kind(tags), "scrub")
 
     def test_relation_outer_fragments_are_joined(self) -> None:
         relation = {

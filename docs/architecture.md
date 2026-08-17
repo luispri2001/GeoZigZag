@@ -75,13 +75,17 @@ This is a planning assumption, not a claim of measured traversability.
 Previously stored untyped polygons are loaded as buildings.
 
 The web application requests `building=*`, `natural=water`,
-`landuse=reservoir`, `natural=wood`, `landuse=forest`, and `natural=scrub`
+`landuse=reservoir`, `natural=wood`, `landuse=forest`, `natural=scrub`,
+`natural=shrubbery`, `natural=heath`, and `landcover=shrubs`
 through the local `/api/osm/semantic` proxy, with public Overpass as a fallback.
 Queries are limited to 9 km². Large OSM relations are clipped to the requested
 bounds before display, costmap use, area measurement, or centroid calculation.
 Forest and scrub components above the UI threshold create selectable resource
-waypoints at their clipped polygon centers. Public targets are never added to a
-mission without the user's selection.
+waypoints at their clipped polygon centers. The default web policy safely adds
+up to six spatially distinct vegetation targets to the mission, rejects centers
+inside the configured building/water margin, and orders them by minimum added
+straight-line detour while preserving the original endpoints. The user can
+disable automatic insertion and retain the selectable targets.
 
 For local costmap A*, this public-data request is automatic and covers the
 ordered mission targets plus the configured corridor buffer. The server stores

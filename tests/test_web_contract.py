@@ -29,6 +29,9 @@ class WebContractTests(unittest.TestCase):
             '["natural"="water"]',
             '["landuse"="forest"]',
             '["natural"="scrub"]',
+            '["natural"="shrubbery"]',
+            '["natural"="heath"]',
+            '["landcover"="shrubs"]',
         ):
             self.assertIn(tag, self.source)
         self.assertIn("loadVisiblePublicSemanticZones", self.source)
@@ -37,6 +40,22 @@ class WebContractTests(unittest.TestCase):
         self.assertIn("/api/catastro/buildings", self.source)
         self.assertIn("downloadCatastroBuildings", self.source)
         self.assertIn("droppedDuplicateOsmBuildings", self.source)
+
+    def test_public_vegetation_waypoints_are_automatically_inserted(self) -> None:
+        for control_id in ("publicAutoWaypoints", "publicAutoWaypointLimit"):
+            self.assertIn(f'id="{control_id}"', self.source)
+        for contract in (
+            "insertMissionStopWithMinimumDetour",
+            "autoWaypointCount",
+            "automatically selected",
+            "pointHitsSemanticZone(zone.center",
+            "maximumDemCells = 39000",
+        ):
+            self.assertIn(contract, self.source)
+        refresh = self.source.split("async function refreshMissionPublicSemanticZones", 1)[1].split(
+            "function removePublicSemanticWaypoints", 1
+        )[0]
+        self.assertIn("refreshPublicSemanticZones(bbox, true)", refresh)
 
     def test_local_cost_route_requires_public_corridor_data_first(self) -> None:
         self.assertIn('id="publicRouteBuffer"', self.source)

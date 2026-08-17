@@ -228,6 +228,12 @@ def overpass_query(bbox: BBox, server_timeout: int = 60) -> str:
         f"  relation[\"landuse\"=\"forest\"]({b.south:.8f},{b.west:.8f},{b.north:.8f},{b.east:.8f});\n"
         f"  way[\"natural\"=\"scrub\"]({b.south:.8f},{b.west:.8f},{b.north:.8f},{b.east:.8f});\n"
         f"  relation[\"natural\"=\"scrub\"]({b.south:.8f},{b.west:.8f},{b.north:.8f},{b.east:.8f});\n"
+        f"  way[\"natural\"=\"shrubbery\"]({b.south:.8f},{b.west:.8f},{b.north:.8f},{b.east:.8f});\n"
+        f"  relation[\"natural\"=\"shrubbery\"]({b.south:.8f},{b.west:.8f},{b.north:.8f},{b.east:.8f});\n"
+        f"  way[\"natural\"=\"heath\"]({b.south:.8f},{b.west:.8f},{b.north:.8f},{b.east:.8f});\n"
+        f"  relation[\"natural\"=\"heath\"]({b.south:.8f},{b.west:.8f},{b.north:.8f},{b.east:.8f});\n"
+        f"  way[\"landcover\"=\"shrubs\"]({b.south:.8f},{b.west:.8f},{b.north:.8f},{b.east:.8f});\n"
+        f"  relation[\"landcover\"=\"shrubs\"]({b.south:.8f},{b.west:.8f},{b.north:.8f},{b.east:.8f});\n"
         ");\n"
         "out geom;"
     )
@@ -349,7 +355,7 @@ def semantic_kind(tags: dict[str, Any]) -> str | None:
         return "water"
     if tags.get("natural") == "wood" or tags.get("landuse") == "forest":
         return "forest"
-    if tags.get("natural") == "scrub":
+    if tags.get("natural") in {"scrub", "shrubbery", "heath"} or tags.get("landcover") == "shrubs":
         return "scrub"
     return None
 

@@ -77,7 +77,8 @@ zone marks the existing route as pending and disables stale exports; press
 In **Mission route**, open **Semantic zones**. There are three inputs:
 
 - in Spain, the official Cadastre INSPIRE WFS is the primary building source;
-- OpenStreetMap supplies complementary buildings, water, forest and scrub;
+- OpenStreetMap supplies complementary buildings, water, forest and shrub
+  areas (`scrub`, `shrubbery`, `heath`, and `landcover=shrubs`);
 - choose a manual zone type and press **Draw zone** for missing or corrected
   features.
 
@@ -87,9 +88,12 @@ In **Mission route**, open **Semantic zones**. There are three inputs:
 - scrub has a smaller traversal penalty.
 
 Forest and scrub polygons above the configured minimum area create resource
-waypoints at the center of the visible polygon. They appear in the regular
-**Waypoints** selector and are not inserted into the mission automatically.
-Buildings do not create waypoints.
+waypoints at the center of the visible polygon. By default, up to six safe,
+spatially distinct vegetation targets are inserted into the mission using a
+minimum-detour ordering that preserves the original start and destination.
+The UI can change the limit or switch to **Create only** for manual selection.
+Candidates inside or too close to buildings/water are rejected. Buildings do
+not create waypoints.
 
 Choose **Local costmap A*** and press **Generate route**. Before planning, the
 web application automatically requests both sources in a configurable corridor
