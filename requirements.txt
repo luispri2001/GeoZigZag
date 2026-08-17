@@ -3,3 +3,4 @@
 matplotlib>=3.7,<4
 PyYAML>=6,<7
 Pillow>=9,<13
+pyproj>=3.4,<4

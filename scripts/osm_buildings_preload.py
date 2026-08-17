@@ -37,6 +37,7 @@ BUILDING_TILE_DEG = 0.0012  # Must match HTML constant.
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUT_DIR = REPO_ROOT / "web" / "osm_semantic_cache"
 DEFAULT_DEM_CACHE = REPO_ROOT / "data" / "dem_cache" / "terrarium"
+DEFAULT_CATASTRO_CACHE = REPO_ROOT / "data" / "catastro_cache"
 ENDPOINTS = [
     "https://overpass-api.de/api/interpreter",
     "https://overpass.private.coffee/api/interpreter",
@@ -793,6 +794,9 @@ def preload(args: argparse.Namespace) -> None:
             default_real_dem=not args.no_dem,
             dem_cache=args.dem_cache,
             dem_zoom=args.dem_zoom,
+            catastro_enabled=not args.no_catastro,
+            catastro_cache=args.catastro_cache,
+            catastro_cache_days=args.catastro_cache_days,
         )
 
 
@@ -800,7 +804,9 @@ class SemanticRequestHandler(SimpleHTTPRequestHandler):
     """Serve static files and proxy bounded semantic Overpass requests."""
 
     api_max_area_m2 = 9_000_000.0
+    catastro_max_area_m2 = 4_000_000.0
     elevation_model: Any | None = None
+    catastro_source: Any | None = None
 
     def _json_response(self, status: int, payload: dict[str, Any]) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -857,6 +863,47 @@ class SemanticRequestHandler(SimpleHTTPRequestHandler):
             except Exception as exc:
                 self._json_response(502, {"error": f"DEM sampling failed: {exc}"})
             return
+        if parsed.path == "/api/catastro/buildings":
+            try:
+                if self.catastro_source is None:
+                    self._json_response(503, {"error": "Catastro building service is disabled."})
+                    return
+                query = parse_qs(parsed.query)
+                bbox = BBox(
+                    south=float(query["south"][0]),
+                    west=float(query["west"][0]),
+                    north=float(query["north"][0]),
+                    east=float(query["east"][0]),
+                )
+                if bbox.south >= bbox.north or bbox.west >= bbox.east:
+                    raise ValueError("Invalid bounding-box order.")
+                mid_lat = (bbox.south + bbox.north) / 2.0
+                width = (bbox.east - bbox.west) * 111_320.0 * max(
+                    0.2, math.cos(math.radians(mid_lat))
+                )
+                height = (bbox.north - bbox.south) * 111_320.0
+                if width * height > self.catastro_max_area_m2:
+                    raise ValueError("Requested area exceeds the Catastro 4 km² safety limit.")
+                result = self.catastro_source.fetch(bbox)
+                self._json_response(
+                    200,
+                    {
+                        "schema": "geozigzag-catastro-buildings-response-v1",
+                        "source": "Dirección General del Catastro",
+                        "dataset": "Catastro INSPIRE Buildings (BU)",
+                        "bbox": bbox.as_dict(),
+                        "features": result.features,
+                        "count": len(result.features),
+                        "cached": result.cached,
+                        "fetchedAtUnix": result.fetched_at_unix,
+                        "queryEpsg": result.query_epsg,
+                    },
+                )
+            except (KeyError, IndexError, TypeError, ValueError) as exc:
+                self._json_response(400, {"error": str(exc)})
+            except Exception as exc:
+                self._json_response(502, {"error": f"Catastro building download failed: {exc}"})
+            return
         if parsed.path != "/api/osm/semantic":
             super().do_GET()
             return
@@ -907,6 +954,9 @@ def serve(
     default_real_dem: bool = True,
     dem_cache: str | Path = DEFAULT_DEM_CACHE,
     dem_zoom: int = 15,
+    catastro_enabled: bool = True,
+    catastro_cache: str | Path = DEFAULT_CATASTRO_CACHE,
+    catastro_cache_days: float = 7.0,
 ) -> None:
     SemanticRequestHandler.elevation_model = build_elevation_model(
         terrain_world=terrain_world,
@@ -915,6 +965,15 @@ def serve(
         dem_cache=dem_cache,
         dem_zoom=dem_zoom,
     )
+    if catastro_enabled:
+        from geozigzag.catastro import CatastroBuildingSource
+
+        SemanticRequestHandler.catastro_source = CatastroBuildingSource(
+            catastro_cache,
+            cache_max_age_days=catastro_cache_days,
+        )
+    else:
+        SemanticRequestHandler.catastro_source = None
     handler = partial(SemanticRequestHandler, directory=str(REPO_ROOT))
     last_error: OSError | None = None
     selected_port = port
@@ -935,7 +994,7 @@ def serve(
 
     print("\nLocal server started.")
     print(f"Open: http://localhost:{selected_port}/web/index.html")
-    print("The same server exposes /api/osm/semantic for the public-data button.")
+    print("Semantic endpoints: /api/osm/semantic and /api/catastro/buildings")
     if SemanticRequestHandler.elevation_model is not None:
         source = public_dem_provenance(SemanticRequestHandler.elevation_model)
         print(f"Real DEM enabled: {source.get('type', 'configured source')}.")
@@ -1007,6 +1066,22 @@ def build_parser() -> argparse.ArgumentParser:
         default=15,
         help="Terrarium zoom, between 0 and 15. Default: 15.",
     )
+    parser.add_argument(
+        "--no-catastro",
+        action="store_true",
+        help="Disable the default Spanish Cadastre INSPIRE building source.",
+    )
+    parser.add_argument(
+        "--catastro-cache",
+        default=str(DEFAULT_CATASTRO_CACHE),
+        help="Local cache for Catastro GML responses. Default: data/catastro_cache.",
+    )
+    parser.add_argument(
+        "--catastro-cache-days",
+        type=float,
+        default=7.0,
+        help="Refresh cached Catastro footprints after this many days. Default: 7.",
+    )
     return parser
 
 
@@ -1022,6 +1097,9 @@ def main() -> None:
             default_real_dem=not args.no_dem,
             dem_cache=args.dem_cache,
             dem_zoom=args.dem_zoom,
+            catastro_enabled=not args.no_catastro,
+            catastro_cache=args.catastro_cache,
+            catastro_cache_days=args.catastro_cache_days,
         )
     else:
         preload(args)
