@@ -83,6 +83,13 @@ Forest and scrub components above the UI threshold create selectable resource
 waypoints at their clipped polygon centers. Public targets are never added to a
 mission without the user's selection.
 
+For local costmap A*, this public-data request is automatic and covers the
+ordered mission targets plus the configured corridor buffer. The server stores
+tile-aligned responses in the semantic cache. Route planning begins only after
+the public response is available, then fuses the semantic grid with the DEM
+slope grid. A final polygon-intersection check prevents export if the generated
+route still touches a mapped building or water zone.
+
 `metrics.py` counts polyline heading changes of at least 30 degrees. This is not
 a dynamically feasible steering or headland-turn metric.
 

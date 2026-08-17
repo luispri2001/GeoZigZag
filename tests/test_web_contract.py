@@ -35,6 +35,20 @@ class WebContractTests(unittest.TestCase):
         self.assertIn("rebuildPublicSemanticWaypoints", self.source)
         self.assertIn('["forest", "scrub"]', self.source)
 
+    def test_local_cost_route_requires_public_corridor_data_first(self) -> None:
+        self.assertIn('id="publicRouteBuffer"', self.source)
+        self.assertIn("function missionPublicSemanticBbox", self.source)
+        self.assertIn("async function refreshMissionPublicSemanticZones", self.source)
+        cost_branch = self.source.split('else if (strategy === "cost")', 1)[1].split(
+            "} else {", 1
+        )[0]
+        self.assertLess(
+            cost_branch.index("await refreshMissionPublicSemanticZones()"),
+            cost_branch.index("await generateCostRoute"),
+        )
+        self.assertIn("Hard-obstacle validation: no route intersections", self.source)
+        self.assertIn("no unsafe route was exported", self.source)
+
     def test_dem_controls_feed_the_local_semantic_astar(self) -> None:
         for control_id in (
             "terrainMode",

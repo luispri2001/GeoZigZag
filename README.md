@@ -91,8 +91,14 @@ waypoints at the center of the visible polygon. They appear in the regular
 **Waypoints** selector and are not inserted into the mission automatically.
 Buildings do not create waypoints.
 
-Choose **Local costmap A*** and press **Generate route** to apply all three
-types. OSM **Balanced** and **Strict** validate buildings and water as hard
+Choose **Local costmap A*** and press **Generate route**. Before planning, the
+web application automatically requests buildings, water, forest, and scrub in
+a configurable corridor around the mission. Buildings and water become hard
+obstacles in the same A* grid that receives the DEM slope costs. The generated
+polyline is checked again against every mapped hard obstacle before export; a
+failed public-data request or a remaining intersection stops generation.
+
+OSM **Balanced** and **Strict** validate buildings and water as hard
 obstacles; forest cost is local to the A* strategy because the public OSRM
 service does not accept this custom cost layer. Zones are stored in the
 browser. Existing saved forbidden zones remain compatible and are interpreted
@@ -109,6 +115,8 @@ python3 scripts/osm_semantic_preload.py \
 ```
 
 Cached files are written under `web/osm_semantic_cache/` and are not committed.
+Live API downloads are also split into complete local tiles, so regenerating
+the same corridor does not require another Overpass request.
 OpenStreetMap is collaborative public data and may be incomplete; satellite
 imagery is visual context, not an automatic detector in this implementation.
 
@@ -200,6 +208,12 @@ costly/blocked slope cells and the exported route is the path produced by the
 fused costmap. No source failure falls back to synthetic or flat elevation.
 
 ![Mission route using the visible DEM slope costmap](docs/screenshots/mission-dem-costmap.png)
+
+The versioned example starts west of a mapped OSM building and finishes east
+of it. Its direct segment intersects the footprint; the fused OSM+DEM route
+detours around it:
+
+![Mission route avoiding a public OSM building with real DEM costs](docs/screenshots/mission-osm-dem-costmap.png)
 
 ## Waypoint schema
 

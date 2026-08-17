@@ -65,6 +65,12 @@ slope penalty, and overlay visibility. Orange cells have added traversal cost;
 red cells exceed the limit and are blocked. The route summary reports the
 number of blocked cells and maximum sampled slope.
 
+Public semantic data is loaded before the terrain-aware A* runs. The normal
+example contains a real OpenStreetMap building between `water_2` and
+`village_east`: the direct 346.1 m segment intersects the footprint, while the
+validated fused route is approximately 374.7 m and has no building
+intersection. Counts and both validation layers are recorded in Route details.
+
 Any real georeferenced single-band elevation GeoTIFF can replace the default:
 
 ```bash

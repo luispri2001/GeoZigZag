@@ -421,6 +421,11 @@
                   <span class="cache-title">Public OpenStreetMap data</span>
                   <span id="publicSemanticStatus" class="cache-status">Not loaded</span>
                 </div>
+                <p class="compact-note">Local costmap A* automatically refreshes public zones around the mission before planning.</p>
+                <div class="field">
+                  <label for="publicRouteBuffer">Automatic corridor buffer (m)</label>
+                  <input id="publicRouteBuffer" type="number" min="20" max="1000" step="10" value="100">
+                </div>
                 <div class="field">
                   <label for="publicWaypointMinArea">Minimum resource area (m²)</label>
                   <input id="publicWaypointMinArea" type="number" min="25" max="100000" step="25" value="100">
@@ -675,7 +680,8 @@ const poiGeojson = {
     {id:"matorral_1", properties:{landcover:"matorral"}, geometry:{type:"Point", coordinates:[-6.203042,42.310832]}},
     {id:"matorral_2", properties:{landcover:"matorral"}, geometry:{type:"Point", coordinates:[-6.205465,42.311749]}},
     {id:"water_1", properties:{landcover:"water"}, geometry:{type:"Point", coordinates:[-6.204025,42.309282]}},
-    {id:"water_2", properties:{landcover:"water"}, geometry:{type:"Point", coordinates:[-6.204347,42.312561]}}
+    {id:"water_2", properties:{landcover:"water"}, geometry:{type:"Point", coordinates:[-6.204347,42.312561]}},
+    {id:"village_east", properties:{landcover:"pastizal"}, geometry:{type:"Point", coordinates:[-6.200150,42.312750]}}
   ]
 };
 const landcoverCost = {road:1, track:1.5, pastizal:10, arbustivo:30, matorral:80, water:1000};
@@ -685,7 +691,7 @@ let fieldMode = "rect";
 let startCorner = "nw";
 let currentWaypoints = [];
 let currentBounds = null;
-let missionStops = ["water_1", "arbustivo_2", "water_2"];
+let missionStops = ["water_2", "village_east"];
 let customWaypointCounter = 1;
 let drawerOpen = false;
 let activeBaseLayer = null;
@@ -2072,6 +2078,15 @@ function semanticBboxAreaM2(bbox) {
   const width = Math.max(0, (bbox.east - bbox.west) * 111320 * Math.max(0.2, Math.cos(midLat * Math.PI / 180)));
   return width * height;
 }
+function validatePublicSemanticBbox(bbox) {
+  const area = semanticBboxAreaM2(bbox);
+  if (area > PUBLIC_SEMANTIC_MAX_AREA_M2) {
+    throw new Error(
+      `Public-data area is ${(area / 1e6).toFixed(1)} km²; keep it below ${(PUBLIC_SEMANTIC_MAX_AREA_M2 / 1e6).toFixed(0)} km².`
+    );
+  }
+  return area;
+}
 async function downloadPublicSemanticZones(bbox) {
   const endpoints = [
     "https://overpass-api.de/api/interpreter",
@@ -2125,6 +2140,27 @@ async function downloadPublicSemanticZones(bbox) {
   }
   if (emptyResponseSeen) return [];
   throw new Error(`Public data download failed. ${errors.join(" | ")}`);
+}
+function missionPublicSemanticBbox() {
+  if (missionStops.length < 2) throw new Error("Add at least two mission waypoints before loading public data.");
+  const bufferM = Math.max(20, Math.min(1000, safeNum("publicRouteBuffer", 100)));
+  return expandBBoxMeters(routeBBox(missionStops.map(poiById)), bufferM);
+}
+async function refreshPublicSemanticZones(bbox, rebuildResources = false) {
+  validatePublicSemanticBbox(bbox);
+  publicSemanticZones = await downloadPublicSemanticZones(bbox);
+  const waypointCount = rebuildResources
+    ? rebuildPublicSemanticWaypoints()
+    : poiGeojson.features.filter(feature => feature.properties?.publicSemantic).length;
+  drawPublicSemanticZones();
+  savePublicSemanticZones();
+  updatePublicSemanticStatus(waypointCount);
+  return {counts: publicSemanticCounts(), waypointCount, bbox};
+}
+async function refreshMissionPublicSemanticZones() {
+  const bbox = missionPublicSemanticBbox();
+  await loadingStep("Loading public buildings, water and vegetation for the mission corridor…");
+  return refreshPublicSemanticZones(bbox, false);
 }
 function removePublicSemanticWaypoints() {
   poiGeojson.features = poiGeojson.features.filter(feature => !feature.properties?.publicSemantic);
@@ -2193,7 +2229,7 @@ function updatePublicSemanticStatus(waypointCount = null) {
   const resources = waypointCount === null
     ? poiGeojson.features.filter(feature => feature.properties?.publicSemantic).length
     : waypointCount;
-  element.textContent = `${publicSemanticZones.length} zones · ${resources} resource WPs`;
+  element.textContent = `${counts.building} buildings · ${counts.water} water · ${counts.forest + counts.scrub} vegetation`;
   element.title = `Buildings ${counts.building}, water ${counts.water}, forest ${counts.forest}, scrub ${counts.scrub}`;
 }
 function savePublicSemanticZones() {
@@ -2230,20 +2266,16 @@ function clearPublicSemanticZones() {
 }
 async function loadVisiblePublicSemanticZones() {
   const bbox = visibleSemanticBbox();
-  const area = semanticBboxAreaM2(bbox);
-  if (area > PUBLIC_SEMANTIC_MAX_AREA_M2) {
-    setStatus(`Visible area is ${(area / 1e6).toFixed(1)} km². Zoom in below ${(PUBLIC_SEMANTIC_MAX_AREA_M2 / 1e6).toFixed(0)} km².`, "err");
+  try {
+    validatePublicSemanticBbox(bbox);
+  } catch (error) {
+    setStatus(error.message || String(error), "err");
     return;
   }
   setGenerateBusy(true);
   setLoadingVisible(true, "Downloading OpenStreetMap buildings, water and vegetation…");
   try {
-    publicSemanticZones = await downloadPublicSemanticZones(bbox);
-    const waypointCount = rebuildPublicSemanticWaypoints();
-    drawPublicSemanticZones();
-    savePublicSemanticZones();
-    updatePublicSemanticStatus(waypointCount);
-    const counts = publicSemanticCounts();
+    const {counts, waypointCount} = await refreshPublicSemanticZones(bbox, true);
     setStatus(
       `Public data loaded: ${counts.building} buildings, ${counts.water} water, ${counts.forest} forest, ${counts.scrub} scrub; ${waypointCount} resource waypoints.`,
       "ok"
@@ -2781,6 +2813,16 @@ async function generateCostRoute(ids, interval) {
       terrainSummary.sources.add(segment.terrain.source);
     }
   }
+  const routeArea = expandBBoxMeters(routeBBox(route), 2);
+  const hardObstacles = semanticZonesForBbox(routeArea).filter(
+    zone => ["building", "water"].includes(zone.kind)
+  );
+  const hardObstacleHits = routeBuildingHits(route, hardObstacles, 0);
+  if (hardObstacleHits.length) {
+    throw new Error(
+      `Generated route intersects ${hardObstacleHits.length} mapped building/water zone(s); no unsafe route was exported.`
+    );
+  }
   updateLegend();
   const terrainStatus = $("terrainStatus");
   if (terrainStatus && terrainSummary.segments) {
@@ -2791,6 +2833,7 @@ async function generateCostRoute(ids, interval) {
     points: route,
     distance_m: distancePoints(route),
     semanticZones: usedZoneIds.size,
+    validatedHardObstacles: hardObstacles.length,
     terrain: terrainSummary.segments ? {
       ...terrainSummary,
       sources: [...terrainSummary.sources]
@@ -2809,8 +2852,10 @@ async function generateMissionRoute() {
     result = await generateOsmRoute(missionStops, interval);
   }
   else if (strategy === "cost") {
+    const publicData = await refreshMissionPublicSemanticZones();
     await loadingStep("Calculating local cost route…");
     result = await generateCostRoute(missionStops, interval);
+    result.publicData = publicData;
   } else {
     await loadingStep("Interpolating direct route…");
     const points = interpolateRoute(missionStops.map(poiById), interval);
@@ -2821,6 +2866,15 @@ async function generateMissionRoute() {
     : strategy;
   const details = [`Mission route generated with ${modeText}.`];
   if (strategy === "cost") {
+    if (result.publicData) {
+      const counts = result.publicData.counts;
+      details.push(
+        `Public OSM corridor: ${counts.building} buildings, ${counts.water} water, ${counts.forest} forest, ${counts.scrub} scrub.`
+      );
+    }
+    details.push(
+      `Hard-obstacle validation: no route intersections across ${result.validatedHardObstacles} mapped building/water zone(s).`
+    );
     details.push(
       result.semanticZones
         ? `${result.semanticZones} semantic zone(s) included in the local costmap.`
@@ -2841,6 +2895,8 @@ async function generateMissionRoute() {
     ? "Route generated with warnings. Some waypoints were snapped or fallback routing was used. Open route details for more information."
     : result.zones
       ? `Route generated successfully while avoiding ${result.zones} blocked semantic zone${result.zones === 1 ? "" : "s"}.`
+      : result.terrain && result.publicData
+        ? `Route generated with OSM + DEM costs; ${result.publicData.counts.building + result.publicData.counts.water} mapped hard obstacle(s) and ${result.terrain.blockedCells} steep cells were blocked.`
       : result.terrain
         ? `Route generated successfully with semantic and DEM terrain costs; ${result.terrain.blockedCells} steep cells were blocked.`
       : result.semanticZones
@@ -3441,6 +3497,9 @@ function bindEvents() {
   if ($("publicWaypointMinArea")) $("publicWaypointMinArea").addEventListener("change", () => {
     updatePublicSemanticStatus(rebuildPublicSemanticWaypoints());
     if (appMode === "mission") scheduleGenerate("Public waypoint area threshold changed.", 500);
+  });
+  if ($("publicRouteBuffer")) $("publicRouteBuffer").addEventListener("change", () => {
+    if (appMode === "mission") scheduleGenerate("Public-data corridor buffer changed.", 500);
   });
   if ($("checkTerrainBtn")) $("checkTerrainBtn").addEventListener("click", checkTerrainServer);
   for (const id of ["terrainMode", "terrainPreferredSlope", "terrainMaxSlope", "terrainCostMultiplier", "terrainShowLayer"]) {

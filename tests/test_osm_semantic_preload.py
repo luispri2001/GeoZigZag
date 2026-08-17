@@ -134,6 +134,33 @@ class OsmSemanticPreloadTests(unittest.TestCase):
         self.assertTrue(bbox.south <= cached[0]["center"][0] <= bbox.north)
         self.assertTrue(bbox.west <= cached[0]["center"][1] <= bbox.east)
 
+    def test_downloaded_bbox_is_written_as_complete_reusable_tiles(self) -> None:
+        request = osm.BBox(42.0001, -4.9999, 42.0002, -4.9998)
+        coverage = osm.tile_cover_bbox(request)
+        ring = [
+            [coverage.south, coverage.west],
+            [coverage.south, coverage.east],
+            [coverage.north, coverage.east],
+            [coverage.north, coverage.west],
+            [coverage.south, coverage.west],
+        ]
+        feature = {
+            "id": "way/7/building",
+            "kind": "building",
+            "ring": ring,
+            "bbox": osm.route_bbox(ring),
+            "center": [42.0, -5.0],
+            "areaM2": 1.0,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            osm.write_semantic_bbox_cache(output, coverage, [feature])
+            cached = osm.read_cached_bbox(output, request)
+
+        self.assertIsNotNone(cached)
+        self.assertEqual(len(cached), 1)
+        self.assertEqual(cached[0]["kind"], "building")
+
     def test_dem_grid_samples_cell_centres(self) -> None:
         class Elevation:
             def elevation_m(self, latitude, longitude):

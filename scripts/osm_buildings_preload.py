@@ -21,6 +21,7 @@ import argparse
 from functools import partial
 import json
 import math
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -46,6 +47,7 @@ ENDPOINTS = [
     "https://z.overpass-api.de/api/interpreter",
 ]
 USER_AGENT = "GeoZigzagSemanticPreloader/2.0 (+local route planning)"
+SEMANTIC_CACHE_LOCK = threading.Lock()
 
 # Same demo POIs as the HTML.
 POIS: dict[str, tuple[float, float]] = {
@@ -58,6 +60,7 @@ POIS: dict[str, tuple[float, float]] = {
     "matorral_2": (42.311749, -6.205465),
     "water_1": (42.309282, -6.204025),
     "water_2": (42.312561, -6.204347),
+    "village_east": (42.312750, -6.200150),
 }
 
 
@@ -594,21 +597,89 @@ def read_cached_bbox(out_dir: Path, bbox: BBox) -> list[dict[str, Any]] | None:
         for feature in cached_features(payload):
             if not bbox_overlap(feature.get("bbox", {}), bbox):
                 continue
-            clipped = clip_ring_to_bbox(feature.get("ring", []), bbox)
-            if not clipped:
-                continue
-            area_m2, center = polygon_area_center(clipped)
-            if area_m2 < 1.0:
-                continue
-            normalized = {
+            collected.setdefault(str(feature.get("id")), feature)
+    normalized_features: list[dict[str, Any]] = []
+    for feature in collected.values():
+        clipped = clip_ring_to_bbox(feature.get("ring", []), bbox)
+        if not clipped:
+            continue
+        area_m2, center = polygon_area_center(clipped)
+        if area_m2 < 1.0:
+            continue
+        normalized_features.append(
+            {
                 **feature,
                 "ring": clipped,
                 "bbox": route_bbox(clipped),
                 "center": center,
                 "areaM2": area_m2,
             }
-            collected[str(feature.get("id"))] = normalized
-    return list(collected.values())
+        )
+    return normalized_features
+
+
+def tile_cover_bbox(bbox: BBox) -> BBox:
+    """Return the tile-aligned area needed to make ``bbox`` fully cacheable."""
+    tiles = tiles_for_bbox(bbox)
+    return BBox(
+        south=min(tile.south for _, tile in tiles),
+        west=min(tile.west for _, tile in tiles),
+        north=max(tile.north for _, tile in tiles),
+        east=max(tile.east for _, tile in tiles),
+    )
+
+
+def write_semantic_bbox_cache(
+    out_dir: Path, bbox: BBox, features: list[dict[str, Any]]
+) -> None:
+    """Atomically store complete tile-aligned semantic query results."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    records: list[dict[str, Any]] = []
+    for key, tile_bbox in tiles_for_bbox(bbox):
+        tile_features = [
+            feature
+            for feature in features
+            if bbox_overlap(feature.get("bbox", {}), tile_bbox)
+        ]
+        payload = {
+            "schema": "geozigzag-osm-semantic-tile-v2",
+            "savedAt": int(time.time() * 1000),
+            "tileKey": key,
+            "tileDeg": BUILDING_TILE_DEG,
+            "bbox": tile_bbox.as_dict(),
+            "features": tile_features,
+        }
+        destination = out_dir / tile_filename(key)
+        temporary = destination.with_suffix(".json.part")
+        temporary.write_text(
+            json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+            encoding="utf-8",
+        )
+        temporary.replace(destination)
+        records.append(
+            {
+                "key": key,
+                "file": destination.name,
+                "bbox": tile_bbox.as_dict(),
+                "features": len(tile_features),
+                "kinds": kind_counts(tile_features),
+            }
+        )
+    write_manifest(out_dir, records, bbox)
+
+
+def download_and_cache_semantic_bbox(out_dir: Path, requested_bbox: BBox) -> list[dict[str, Any]]:
+    """Download complete OSM tiles once, then return data clipped to the request."""
+    with SEMANTIC_CACHE_LOCK:
+        cached = read_cached_bbox(out_dir, requested_bbox)
+        if cached is not None:
+            return cached
+        coverage = tile_cover_bbox(requested_bbox)
+        features = download_bbox_robust(
+            coverage, timeout=25, retries=0, sleep_s=0.0
+        )
+        write_semantic_bbox_cache(out_dir, coverage, features)
+        return read_cached_bbox(out_dir, requested_bbox) or []
 
 
 def preload(args: argparse.Namespace) -> None:
@@ -809,8 +880,8 @@ class SemanticRequestHandler(SimpleHTTPRequestHandler):
             features = read_cached_bbox(DEFAULT_OUT_DIR, bbox)
             source = "local semantic cache"
             if features is None:
-                features = download_bbox_robust(bbox, timeout=25, retries=0, sleep_s=0.0)
-                source = "OpenStreetMap/Overpass"
+                features = download_and_cache_semantic_bbox(DEFAULT_OUT_DIR, bbox)
+                source = "OpenStreetMap/Overpass (cached)"
             self._json_response(
                 200,
                 {
