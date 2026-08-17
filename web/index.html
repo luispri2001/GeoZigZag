@@ -418,13 +418,17 @@
               </div>
               <div id="publicSemanticTools" class="cache-tools">
                 <div class="cache-head">
-                  <span class="cache-title">Public OpenStreetMap data</span>
+                  <span class="cache-title">Public semantic data</span>
                   <span id="publicSemanticStatus" class="cache-status">Not loaded</span>
                 </div>
-                <p class="compact-note">Local costmap A* automatically refreshes public zones around the mission before planning.</p>
+                <p class="compact-note">Buildings come from Spanish Cadastre when available; OSM supplies complementary buildings, water and vegetation.</p>
                 <div class="field">
                   <label for="publicRouteBuffer">Automatic corridor buffer (m)</label>
                   <input id="publicRouteBuffer" type="number" min="20" max="1000" step="10" value="100">
+                </div>
+                <div class="field">
+                  <label for="semanticSafetyBuffer">Hard-obstacle safety margin (m)</label>
+                  <input id="semanticSafetyBuffer" type="number" min="0.5" max="25" step="0.5" value="2">
                 </div>
                 <div class="field">
                   <label for="publicWaypointMinArea">Minimum resource area (m²)</label>
@@ -681,7 +685,7 @@ const poiGeojson = {
     {id:"matorral_2", properties:{landcover:"matorral"}, geometry:{type:"Point", coordinates:[-6.205465,42.311749]}},
     {id:"water_1", properties:{landcover:"water"}, geometry:{type:"Point", coordinates:[-6.204025,42.309282]}},
     {id:"water_2", properties:{landcover:"water"}, geometry:{type:"Point", coordinates:[-6.204347,42.312561]}},
-    {id:"village_east", properties:{landcover:"pastizal"}, geometry:{type:"Point", coordinates:[-6.200150,42.312750]}}
+    {id:"village_east", properties:{landcover:"pastizal"}, geometry:{type:"Point", coordinates:[-6.200150,42.312900]}}
   ]
 };
 const landcoverCost = {road:1, track:1.5, pastizal:10, arbustivo:30, matorral:80, water:1000};
@@ -714,6 +718,8 @@ let manualObstacleDraft = [];
 let manualObstacleDrawMode = false;
 let manualObstacleEditSnapshot = null;
 let publicSemanticZones = [];
+let publicSemanticMetadata = {};
+let publicSemanticCoverageBbox = null;
 
 // Keep GPS/satellite as the default view; users can switch to the map layer.
 const modeBaseView = {coverage: "gps", mission: "gps"};
@@ -1857,8 +1863,8 @@ function manualHardObstaclesForBbox(bbox) {
   return semanticZonesForBbox(bbox).filter(o => ["building", "water"].includes(o.kind));
 }
 
-const PUBLIC_SEMANTIC_STORAGE_KEY = "geozigzag_public_semantic_v1";
-const PUBLIC_SEMANTIC_MAX_AREA_M2 = 9_000_000;
+const PUBLIC_SEMANTIC_STORAGE_KEY = "geozigzag_public_semantic_v2";
+const PUBLIC_SEMANTIC_MAX_AREA_M2 = 4_000_000;
 const PUBLIC_SEMANTIC_MAX_FEATURES = 1200;
 
 function semanticZonesForBbox(bbox) {
@@ -2087,7 +2093,7 @@ function validatePublicSemanticBbox(bbox) {
   }
   return area;
 }
-async function downloadPublicSemanticZones(bbox) {
+async function downloadOsmSemanticZones(bbox) {
   const endpoints = [
     "https://overpass-api.de/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
@@ -2114,7 +2120,9 @@ async function downloadPublicSemanticZones(bbox) {
       const zones = (payload.features || []).filter(
         zone => zone && SEMANTIC_ZONE_STYLE[zone.kind] && Array.isArray(zone.ring)
       );
-      if (zones.length || payload.features) return zones;
+      if (zones.length || payload.features) {
+        return {zones, metadata: {source: payload.source || "OpenStreetMap", count: zones.length}};
+      }
     } else if (response.status !== 404) {
       const payload = await response.json().catch(() => ({}));
       errors.push(`local service: ${payload.error || `HTTP ${response.status}`}`);
@@ -2131,15 +2139,103 @@ async function downloadPublicSemanticZones(bbox) {
       }, 25000, "OpenStreetMap semantic data");
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const zones = parseOverpassSemantic(await response.json(), bbox);
-      if (zones.length) return zones;
+      if (zones.length) return {zones, metadata: {source: "OpenStreetMap/Overpass", count: zones.length}};
       emptyResponseSeen = true;
       errors.push(`${endpoint.replace(/^https?:\/\//, "")}: no supported polygons`);
     } catch (error) {
       errors.push(`${endpoint.replace(/^https?:\/\//, "")}: ${error.message || error}`);
     }
   }
-  if (emptyResponseSeen) return [];
-  throw new Error(`Public data download failed. ${errors.join(" | ")}`);
+  if (emptyResponseSeen) return {zones: [], metadata: {source: "OpenStreetMap/Overpass", count: 0}};
+  throw new Error(`OpenStreetMap download failed. ${errors.join(" | ")}`);
+}
+function bboxCenterLatLng(bbox) {
+  return [(bbox.south + bbox.north) / 2, (bbox.west + bbox.east) / 2];
+}
+function semanticPointInsideZone(point, zone) {
+  const origin = point;
+  const polygon = zone.ring.map(vertex => llToXY(vertex[0], vertex[1], origin));
+  return pointInPolygonXY([0, 0], polygon);
+}
+function semanticZonesDuplicate(first, second) {
+  const firstBox = first.bbox || routeBBox(first.ring);
+  const secondBox = second.bbox || routeBBox(second.ring);
+  if (!bboxOverlap(firstBox, secondBox)) return false;
+  const firstCenter = first.center || bboxCenterLatLng(firstBox);
+  const secondCenter = second.center || bboxCenterLatLng(secondBox);
+  return semanticPointInsideZone(firstCenter, second) ||
+    semanticPointInsideZone(secondCenter, first) ||
+    distanceLatLng(firstCenter, secondCenter) < 12;
+}
+async function downloadCatastroBuildings(bbox) {
+  const query = new URLSearchParams({
+    south: bbox.south,
+    west: bbox.west,
+    north: bbox.north,
+    east: bbox.east
+  });
+  const response = await fetchWithTimeout(
+    `/api/catastro/buildings?${query}`,
+    {headers: {"Accept": "application/json"}},
+    150000,
+    "Spanish Cadastre building data"
+  );
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.error || `Catastro server returned HTTP ${response.status}.`);
+  if (payload.schema !== "geozigzag-catastro-buildings-response-v1" || !Array.isArray(payload.features)) {
+    throw new Error("Catastro server returned an invalid building response.");
+  }
+  const zones = payload.features.filter(
+    zone => zone && zone.kind === "building" && Array.isArray(zone.ring) && zone.ring.length >= 4
+  );
+  return {
+    zones,
+    metadata: {
+      source: payload.source || "Dirección General del Catastro",
+      dataset: payload.dataset || "Catastro INSPIRE Buildings (BU)",
+      count: zones.length,
+      cached: Boolean(payload.cached),
+      queryEpsg: payload.queryEpsg || null,
+      supported: payload.queryEpsg !== 0
+    }
+  };
+}
+function bboxMayBeInSpain(bbox) {
+  return !(bbox.east < -18.5 || bbox.west > 5 || bbox.north < 27 || bbox.south > 44.5);
+}
+async function downloadPublicSemanticZones(bbox) {
+  const [osmResult, catastroResult] = await Promise.allSettled([
+    downloadOsmSemanticZones(bbox),
+    downloadCatastroBuildings(bbox)
+  ]);
+  if (osmResult.status === "rejected" && catastroResult.status === "rejected") {
+    throw new Error(`Public semantic download failed. OSM: ${osmResult.reason?.message || osmResult.reason}; Catastro: ${catastroResult.reason?.message || catastroResult.reason}`);
+  }
+  if (catastroResult.status === "rejected" && bboxMayBeInSpain(bbox)) {
+    throw new Error(`Official Catastro buildings are required for safe routing in Spain: ${catastroResult.reason?.message || catastroResult.reason}`);
+  }
+  const osm = osmResult.status === "fulfilled" ? osmResult.value : {zones: [], metadata: {error: String(osmResult.reason)}};
+  const catastro = catastroResult.status === "fulfilled" ? catastroResult.value : {zones: [], metadata: {supported: false, error: String(catastroResult.reason)}};
+  const cadastralBuildings = catastro.zones;
+  const complementaryOsm = osm.zones.filter(zone =>
+    zone.kind !== "building" || !cadastralBuildings.some(building => semanticZonesDuplicate(zone, building))
+  );
+  const zones = cadastralBuildings.concat(complementaryOsm);
+  if (zones.length > PUBLIC_SEMANTIC_MAX_FEATURES) {
+    throw new Error(`Public sources returned ${zones.length} polygons. Reduce the corridor or visible area below ${PUBLIC_SEMANTIC_MAX_FEATURES}.`);
+  }
+  return {
+    zones,
+    metadata: {
+      catastro: catastro.metadata,
+      osm: osm.metadata,
+      droppedDuplicateOsmBuildings: osm.zones.length + cadastralBuildings.length - zones.length,
+      warnings: [
+        ...(osmResult.status === "rejected" ? [`OSM unavailable: ${osmResult.reason?.message || osmResult.reason}`] : []),
+        ...(catastroResult.status === "rejected" ? [`Catastro unavailable outside mandatory coverage: ${catastroResult.reason?.message || catastroResult.reason}`] : [])
+      ]
+    }
+  };
 }
 function missionPublicSemanticBbox() {
   if (missionStops.length < 2) throw new Error("Add at least two mission waypoints before loading public data.");
@@ -2148,18 +2244,21 @@ function missionPublicSemanticBbox() {
 }
 async function refreshPublicSemanticZones(bbox, rebuildResources = false) {
   validatePublicSemanticBbox(bbox);
-  publicSemanticZones = await downloadPublicSemanticZones(bbox);
+  const downloaded = await downloadPublicSemanticZones(bbox);
+  publicSemanticZones = downloaded.zones;
+  publicSemanticMetadata = downloaded.metadata;
+  publicSemanticCoverageBbox = {...bbox};
   const waypointCount = rebuildResources
     ? rebuildPublicSemanticWaypoints()
     : poiGeojson.features.filter(feature => feature.properties?.publicSemantic).length;
   drawPublicSemanticZones();
   savePublicSemanticZones();
   updatePublicSemanticStatus(waypointCount);
-  return {counts: publicSemanticCounts(), waypointCount, bbox};
+  return {counts: publicSemanticCounts(), sources: publicSemanticSourceCounts(), metadata: publicSemanticMetadata, waypointCount, bbox};
 }
 async function refreshMissionPublicSemanticZones() {
   const bbox = missionPublicSemanticBbox();
-  await loadingStep("Loading public buildings, water and vegetation for the mission corridor…");
+  await loadingStep("Loading Catastro buildings and complementary OSM data…");
   return refreshPublicSemanticZones(bbox, false);
 }
 function removePublicSemanticWaypoints() {
@@ -2182,9 +2281,9 @@ function rebuildPublicSemanticWaypoints() {
       properties: {
         landcover: zone.kind,
         publicSemantic: true,
-        source: "OpenStreetMap",
+        source: zone.source || "Public semantic data",
         area_m2: Math.round(zone.areaM2),
-        osm_zone_id: zone.id,
+        semantic_zone_id: zone.id,
         name: zone.name || id
       },
       geometry: {type: "Point", coordinates: [zone.center[1], zone.center[0]]}
@@ -2207,7 +2306,7 @@ function drawPublicSemanticZones() {
       fillOpacity: 0.18,
       interactive: true
     }).addTo(publicSemanticLayer).bindTooltip(
-      `${zone.name || style.label} · OSM · ${Math.round(zone.areaM2)} m²`,
+      `${zone.name || style.label} · ${zone.source || "public data"} · ${Math.round(zone.areaM2)} m²`,
       {direction: "center"}
     );
   }
@@ -2215,7 +2314,17 @@ function drawPublicSemanticZones() {
 }
 function publicSemanticCounts() {
   const counts = {building: 0, water: 0, forest: 0, scrub: 0};
-  publicSemanticZones.forEach(zone => { counts[zone.kind] += 1; });
+  publicSemanticZones.forEach(zone => {
+    if (Object.prototype.hasOwnProperty.call(counts, zone.kind)) counts[zone.kind] += 1;
+  });
+  return counts;
+}
+function publicSemanticSourceCounts() {
+  const counts = {catastro: 0, osm: 0, manual: manualObstacles.length};
+  publicSemanticZones.forEach(zone => {
+    if (/catastro/i.test(zone.source || "")) counts.catastro += 1;
+    else if (/openstreetmap|osm/i.test(zone.source || "")) counts.osm += 1;
+  });
   return counts;
 }
 function updatePublicSemanticStatus(waypointCount = null) {
@@ -2229,14 +2338,17 @@ function updatePublicSemanticStatus(waypointCount = null) {
   const resources = waypointCount === null
     ? poiGeojson.features.filter(feature => feature.properties?.publicSemantic).length
     : waypointCount;
+  const sources = publicSemanticSourceCounts();
   element.textContent = `${counts.building} buildings · ${counts.water} water · ${counts.forest + counts.scrub} vegetation`;
-  element.title = `Buildings ${counts.building}, water ${counts.water}, forest ${counts.forest}, scrub ${counts.scrub}`;
+  element.title = `Catastro ${sources.catastro}, OSM ${sources.osm}. Buildings ${counts.building}, water ${counts.water}, forest ${counts.forest}, scrub ${counts.scrub}; resource waypoints ${resources}.`;
 }
 function savePublicSemanticZones() {
   try {
     localStorage.setItem(PUBLIC_SEMANTIC_STORAGE_KEY, JSON.stringify({
       savedAt: Date.now(),
-      zones: publicSemanticZones
+      zones: publicSemanticZones,
+      metadata: publicSemanticMetadata,
+      coverageBbox: publicSemanticCoverageBbox
     }));
   } catch (_) {}
 }
@@ -2246,14 +2358,20 @@ function loadSavedPublicSemanticZones() {
     publicSemanticZones = (payload.zones || []).filter(
       zone => zone && SEMANTIC_ZONE_STYLE[zone.kind] && Array.isArray(zone.ring) && zone.ring.length >= 4
     );
+    publicSemanticMetadata = payload.metadata || {};
+    publicSemanticCoverageBbox = payload.coverageBbox || null;
   } catch (_) {
     publicSemanticZones = [];
+    publicSemanticMetadata = {};
+    publicSemanticCoverageBbox = null;
   }
   drawPublicSemanticZones();
   updatePublicSemanticStatus(rebuildPublicSemanticWaypoints());
 }
 function clearPublicSemanticZones() {
   publicSemanticZones = [];
+  publicSemanticMetadata = {};
+  publicSemanticCoverageBbox = null;
   try { localStorage.removeItem(PUBLIC_SEMANTIC_STORAGE_KEY); } catch (_) {}
   removePublicSemanticWaypoints();
   drawPublicSemanticZones();
@@ -2273,11 +2391,11 @@ async function loadVisiblePublicSemanticZones() {
     return;
   }
   setGenerateBusy(true);
-  setLoadingVisible(true, "Downloading OpenStreetMap buildings, water and vegetation…");
+  setLoadingVisible(true, "Downloading Catastro buildings and complementary OSM data…");
   try {
-    const {counts, waypointCount} = await refreshPublicSemanticZones(bbox, true);
+    const {counts, sources, waypointCount} = await refreshPublicSemanticZones(bbox, true);
     setStatus(
-      `Public data loaded: ${counts.building} buildings, ${counts.water} water, ${counts.forest} forest, ${counts.scrub} scrub; ${waypointCount} resource waypoints.`,
+      `Public data loaded: ${counts.building} buildings (${sources.catastro} Catastro, ${sources.osm} OSM zones), ${counts.water} water, ${counts.forest} forest, ${counts.scrub} scrub; ${waypointCount} resource waypoints.`,
       "ok"
     );
     if (appMode === "mission") scheduleGenerate("Public semantic data loaded.", 500);
@@ -2374,6 +2492,27 @@ function routeBuildingHits(routePoints, buildings, bufferM) {
   }
   return hits;
 }
+function pointHitsSemanticZone(point, zone, bufferM = 0) {
+  const zoneBox = expandBBoxMeters(zone.bbox || routeBBox(zone.ring), bufferM + 0.5);
+  if (!bboxOverlap(routeBBox([point]), zoneBox)) return false;
+  const polygon = zone.ring.map(vertex => llToXY(vertex[0], vertex[1], point));
+  if (pointInPolygonXY([0, 0], polygon)) return true;
+  for (let index = 0; index < polygon.length - 1; index++) {
+    if (distancePointSegmentXY([0, 0], polygon[index], polygon[index + 1]) <= bufferM) return true;
+  }
+  return false;
+}
+function validateHardObstacleEndpoints(start, end, zones, bufferM) {
+  const hardZones = zones.filter(zone => ["building", "water"].includes(zone.kind));
+  const startHits = hardZones.filter(zone => pointHitsSemanticZone(start, zone, bufferM));
+  const endHits = hardZones.filter(zone => pointHitsSemanticZone(end, zone, bufferM));
+  if (startHits.length || endHits.length) {
+    const labels = [];
+    if (startHits.length) labels.push(`start (${startHits.length})`);
+    if (endHits.length) labels.push(`destination (${endHits.length})`);
+    throw new Error(`Mission ${labels.join(" and ")} lies inside or within ${bufferM.toFixed(1)} m of a mapped building/water obstacle. Move the affected waypoint.`);
+  }
+}
 function cellIsBlocked(value) {
   return value === true || !Number.isFinite(value);
 }
@@ -2435,14 +2574,20 @@ function astarGrid(grid, start, goal) {
   }
   return [];
 }
-function buildLocalSemanticGrid(start, end, buildings, bufferM, preferredResolution = 3, semanticCosts = false) {
-  const bbox = expandBBoxMeters(routeBBox([start, end, ...buildings.flatMap(b => b.ring)]), Math.max(20, bufferM + 10));
+function buildLocalSemanticGrid(start, end, buildings, bufferM, preferredResolution = 3, semanticCosts = false, planningBbox = null) {
+  const bbox = planningBbox
+    ? {...planningBbox}
+    : expandBBoxMeters(routeBBox([start, end, ...buildings.flatMap(b => b.ring)]), Math.max(20, bufferM + 10));
   const origin = [(bbox.south + bbox.north) / 2, (bbox.west + bbox.east) / 2];
   const minXY = llToXY(bbox.south, bbox.west, origin);
   const maxXY = llToXY(bbox.north, bbox.east, origin);
   const widthM = Math.max(1, maxXY[0] - minXY[0]);
   const heightM = Math.max(1, maxXY[1] - minXY[1]);
-  const resolution = Math.max(preferredResolution, widthM / 180, heightM / 180, bufferM || 1.5);
+  const resolution = Math.max(preferredResolution, widthM / 260, heightM / 260, 1.5);
+  // A* connects cell centres, so rasterise obstacles with half a cell diagonal
+  // of extra clearance. This makes the continuous polyline honour bufferM
+  // instead of merely keeping sampled cell centres outside the footprint.
+  const rasterBufferM = bufferM + resolution * Math.SQRT2 / 2;
   const cols = Math.max(3, Math.ceil(widthM / resolution));
   const rows = Math.max(3, Math.ceil(heightM / resolution));
   if (cols * rows > 60000) throw new Error("The local A* fallback would be too large for this area. Move the waypoints closer together or increase the resolution.");
@@ -2468,7 +2613,7 @@ function buildLocalSemanticGrid(start, end, buildings, bufferM, preferredResolut
         const style = SEMANTIC_ZONE_STYLE[zone.kind];
         let inside = pointInPolygonXY(center, zone.ring);
         for (let i = 0; !inside && i < zone.ring.length - 1; i++) {
-          if (distancePointSegmentXY(center, zone.ring[i], zone.ring[i + 1]) <= bufferM) inside = true;
+          if (distancePointSegmentXY(center, zone.ring[i], zone.ring[i + 1]) <= rasterBufferM) inside = true;
         }
         if (!inside) continue;
         if (!semanticCosts || !Number.isFinite(style.cost)) {
@@ -2497,8 +2642,8 @@ function solveLocalGrid(context, start, end, strictTerrainEndpoints = false) {
     return xyToLL(xy[0], xy[1], context.origin);
   });
 }
-function localAstarAroundBuildings(start, end, buildings, bufferM, preferredResolution = 3, semanticCosts = false) {
-  const context = buildLocalSemanticGrid(start, end, buildings, bufferM, preferredResolution, semanticCosts);
+function localAstarAroundBuildings(start, end, buildings, bufferM, preferredResolution = 3, semanticCosts = false, planningBbox = null) {
+  const context = buildLocalSemanticGrid(start, end, buildings, bufferM, preferredResolution, semanticCosts, planningBbox);
   return solveLocalGrid(context, start, end, false);
 }
 function currentTerrainSettings() {
@@ -2593,8 +2738,12 @@ function renderTerrainCostCells(context, terrain, settings) {
     }).addTo(terrainCostLayer);
   });
 }
-async function localAstarWithTerrain(start, end, buildings, bufferM, preferredResolution, settings) {
-  const context = buildLocalSemanticGrid(start, end, buildings, bufferM, preferredResolution, true);
+async function localAstarWithTerrain(start, end, buildings, bufferM, preferredResolution, settings, planningBbox = null) {
+  const context = buildLocalSemanticGrid(start, end, buildings, bufferM, preferredResolution, true, planningBbox);
+  const semanticStart = context.llToCell(start), semanticGoal = context.llToCell(end);
+  if (cellIsBlocked(context.grid[semanticStart[0]][semanticStart[1]]) || cellIsBlocked(context.grid[semanticGoal[0]][semanticGoal[1]])) {
+    throw new Error("The start or destination occupies a semantic obstacle cell. Move the waypoint or reduce the configured safety margin.");
+  }
   await loadingStep("Loading real DEM costmap…");
   const loaded = await loadElevationGrid(context, settings);
   const terrain = applyElevationGrid(context, loaded.elevations, settings, loaded.source);
@@ -2752,15 +2901,17 @@ async function generateOsmRoute(ids, interval) {
 
   return {points: fullRoute, distance_m: distancePoints(fullRoute), profile, endpointMode, warnings: snapWarnings, zones: finalZones.length, alternativesUsed, astarFallbacks, quickMode: !avoidBuildings};
 }
-async function localCostSegment(a, b, interval, startType, endType, semanticZones, terrainSettings) {
+async function localCostSegment(a, b, interval, startType, endType, semanticZones, terrainSettings, safetyBufferM, planningBbox) {
+  validateHardObstacleEndpoints(a, b, semanticZones, safetyBufferM);
   if (terrainSettings.mode !== "off") {
     const planned = await localAstarWithTerrain(
       a,
       b,
       semanticZones,
-      1.5,
-      Math.max(1.5, interval / 2),
-      terrainSettings
+      safetyBufferM,
+      Math.max(1.5, Math.min(2, interval / 2)),
+      terrainSettings,
+      planningBbox
     );
     return {
       points: interpolateRoute([a, ...planned.points, b], interval),
@@ -2772,9 +2923,10 @@ async function localCostSegment(a, b, interval, startType, endType, semanticZone
       a,
       b,
       semanticZones,
-      1.5,
-      Math.max(1.5, interval / 2),
-      true
+      safetyBufferM,
+      Math.max(1.5, Math.min(2, interval / 2)),
+      true,
+      planningBbox
     );
     return {points: interpolateRoute([a, ...astar, b], interval), terrain: null};
   }
@@ -2793,17 +2945,24 @@ async function generateCostRoute(ids, interval) {
   const route = [];
   const usedZoneIds = new Set();
   const terrainSettings = currentTerrainSettings();
+  const safetyBufferM = Math.max(0.5, Math.min(25, safeNum("semanticSafetyBuffer", 2)));
   const terrainSummary = {segments: 0, blockedCells: 0, cellCount: 0, maxSlopePct: 0, sources: new Set()};
   terrainCostLayer.clearLayers();
+  if (terrainSettings.mode === "off" && $("terrainStatus")) {
+    $("terrainStatus").classList.remove("warn");
+    $("terrainStatus").textContent = "Elevation layer disabled for this route.";
+  }
   for (let i = 0; i < ids.length - 1; i++) {
     const aId = ids[i], bId = ids[i + 1];
     const a = poiById(aId), b = poiById(bId);
     const at = featureById(aId).properties.landcover;
     const bt = featureById(bId).properties.landcover;
-    const searchBox = expandBBoxMeters(routeBBox([a, b]), 50);
-    const zones = semanticZonesForBbox(searchBox);
+    const searchBufferM = Math.max(50, Math.min(1000, safeNum("publicRouteBuffer", 100)));
+    const searchBox = expandBBoxMeters(routeBBox([a, b]), searchBufferM);
+    const planningBbox = publicSemanticCoverageBbox || searchBox;
+    const zones = semanticZonesForBbox(planningBbox);
     zones.forEach(zone => usedZoneIds.add(zone.id));
-    const segment = await localCostSegment(a, b, interval, at, bt, zones, terrainSettings);
+    const segment = await localCostSegment(a, b, interval, at, bt, zones, terrainSettings, safetyBufferM, planningBbox);
     appendRoutePoints(route, segment.points);
     if (segment.terrain) {
       terrainSummary.segments += 1;
@@ -2813,14 +2972,14 @@ async function generateCostRoute(ids, interval) {
       terrainSummary.sources.add(segment.terrain.source);
     }
   }
-  const routeArea = expandBBoxMeters(routeBBox(route), 2);
+  const routeArea = expandBBoxMeters(routeBBox(route), safetyBufferM + 2);
   const hardObstacles = semanticZonesForBbox(routeArea).filter(
     zone => ["building", "water"].includes(zone.kind)
   );
-  const hardObstacleHits = routeBuildingHits(route, hardObstacles, 0);
+  const hardObstacleHits = routeBuildingHits(route, hardObstacles, safetyBufferM);
   if (hardObstacleHits.length) {
     throw new Error(
-      `Generated route intersects ${hardObstacleHits.length} mapped building/water zone(s); no unsafe route was exported.`
+      `Generated route violates the ${safetyBufferM.toFixed(1)} m safety margin around ${hardObstacleHits.length} mapped building/water zone(s); no unsafe route was exported.`
     );
   }
   updateLegend();
@@ -2834,6 +2993,7 @@ async function generateCostRoute(ids, interval) {
     distance_m: distancePoints(route),
     semanticZones: usedZoneIds.size,
     validatedHardObstacles: hardObstacles.length,
+    safetyBufferM,
     terrain: terrainSummary.segments ? {
       ...terrainSummary,
       sources: [...terrainSummary.sources]
@@ -2868,12 +3028,15 @@ async function generateMissionRoute() {
   if (strategy === "cost") {
     if (result.publicData) {
       const counts = result.publicData.counts;
+      const sources = result.publicData.sources;
       details.push(
-        `Public OSM corridor: ${counts.building} buildings, ${counts.water} water, ${counts.forest} forest, ${counts.scrub} scrub.`
+        `Fused public corridor: ${counts.building} buildings, ${counts.water} water, ${counts.forest} forest, ${counts.scrub} scrub.`
       );
+      details.push(`Source provenance: ${sources.catastro} Catastro polygon(s), ${sources.osm} complementary OSM polygon(s).`);
+      for (const warning of result.publicData.metadata?.warnings || []) details.push(warning);
     }
     details.push(
-      `Hard-obstacle validation: no route intersections across ${result.validatedHardObstacles} mapped building/water zone(s).`
+      `Hard-obstacle validation: ${result.safetyBufferM.toFixed(1)} m clearance across ${result.validatedHardObstacles} mapped building/water zone(s).`
     );
     details.push(
       result.semanticZones
@@ -2896,7 +3059,7 @@ async function generateMissionRoute() {
     : result.zones
       ? `Route generated successfully while avoiding ${result.zones} blocked semantic zone${result.zones === 1 ? "" : "s"}.`
       : result.terrain && result.publicData
-        ? `Route generated with OSM + DEM costs; ${result.publicData.counts.building + result.publicData.counts.water} mapped hard obstacle(s) and ${result.terrain.blockedCells} steep cells were blocked.`
+        ? `Route generated with Catastro + OSM + DEM costs; ${result.publicData.counts.building + result.publicData.counts.water} mapped hard obstacle(s) and ${result.terrain.blockedCells} steep cells were blocked.`
       : result.terrain
         ? `Route generated successfully with semantic and DEM terrain costs; ${result.terrain.blockedCells} steep cells were blocked.`
       : result.semanticZones
@@ -3498,9 +3661,11 @@ function bindEvents() {
     updatePublicSemanticStatus(rebuildPublicSemanticWaypoints());
     if (appMode === "mission") scheduleGenerate("Public waypoint area threshold changed.", 500);
   });
-  if ($("publicRouteBuffer")) $("publicRouteBuffer").addEventListener("change", () => {
-    if (appMode === "mission") scheduleGenerate("Public-data corridor buffer changed.", 500);
-  });
+  for (const id of ["publicRouteBuffer", "semanticSafetyBuffer"]) {
+    if ($(id)) $(id).addEventListener("change", () => {
+      if (appMode === "mission") scheduleGenerate("Public-data safety setting changed.", 500);
+    });
+  }
   if ($("checkTerrainBtn")) $("checkTerrainBtn").addEventListener("click", checkTerrainServer);
   for (const id of ["terrainMode", "terrainPreferredSlope", "terrainMaxSlope", "terrainCostMultiplier", "terrainShowLayer"]) {
     const element = $(id);

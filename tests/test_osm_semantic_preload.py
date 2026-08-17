@@ -1,4 +1,5 @@
 import importlib.util
+import inspect
 import json
 import sys
 import tempfile
@@ -206,6 +207,12 @@ class OsmSemanticPreloadTests(unittest.TestCase):
             osm.public_dem_provenance(Elevation()),
             {"type": "test", "zoom": 15},
         )
+
+    def test_server_exposes_separate_catastro_building_endpoint(self) -> None:
+        handler = inspect.getsource(osm.SemanticRequestHandler.do_GET)
+        self.assertIn('"/api/catastro/buildings"', handler)
+        self.assertIn("catastro_max_area_m2", handler)
+        self.assertIn("geozigzag-catastro-buildings-response-v1", handler)
 
 
 if __name__ == "__main__":

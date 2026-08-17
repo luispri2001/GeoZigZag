@@ -24,6 +24,7 @@ web/osm_buildings_cache/
 web/osm_semantic_cache/
 web/**/tile_*.json
 data/dem_cache/
+data/catastro_cache/
 *.mbtiles
 *.tiles
 

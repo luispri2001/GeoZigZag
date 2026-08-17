@@ -23,7 +23,7 @@ class WebContractTests(unittest.TestCase):
         self.assertIn("semanticCosts", self.source)
         self.assertNotIn("Automatic building-footprint safety", self.source)
 
-    def test_public_osm_zones_create_resource_waypoints(self) -> None:
+    def test_fused_public_zones_create_resource_waypoints(self) -> None:
         for tag in (
             '["building"]',
             '["natural"="water"]',
@@ -34,6 +34,9 @@ class WebContractTests(unittest.TestCase):
         self.assertIn("loadVisiblePublicSemanticZones", self.source)
         self.assertIn("rebuildPublicSemanticWaypoints", self.source)
         self.assertIn('["forest", "scrub"]', self.source)
+        self.assertIn("/api/catastro/buildings", self.source)
+        self.assertIn("downloadCatastroBuildings", self.source)
+        self.assertIn("droppedDuplicateOsmBuildings", self.source)
 
     def test_local_cost_route_requires_public_corridor_data_first(self) -> None:
         self.assertIn('id="publicRouteBuffer"', self.source)
@@ -46,7 +49,11 @@ class WebContractTests(unittest.TestCase):
             cost_branch.index("await refreshMissionPublicSemanticZones()"),
             cost_branch.index("await generateCostRoute"),
         )
-        self.assertIn("Hard-obstacle validation: no route intersections", self.source)
+        self.assertIn("Hard-obstacle validation:", self.source)
+        self.assertIn('id="semanticSafetyBuffer"', self.source)
+        self.assertIn("validateHardObstacleEndpoints", self.source)
+        self.assertIn("publicSemanticCoverageBbox", self.source)
+        self.assertIn("planningBbox", self.source)
         self.assertIn("no unsafe route was exported", self.source)
 
     def test_dem_controls_feed_the_local_semantic_astar(self) -> None:
@@ -82,6 +89,10 @@ class WebContractTests(unittest.TestCase):
         self.assertIn('params.get("terrain")', self.source)
         self.assertNotIn("syntheticElevationGrid", self.source)
         self.assertNotIn('value="demo"', self.source)
+
+    def test_default_destination_is_not_the_known_cadastral_building(self) -> None:
+        self.assertIn("coordinates:[-6.200150,42.312900]", self.source)
+        self.assertNotIn("coordinates:[-6.200150,42.312750]", self.source)
 
 
 if __name__ == "__main__":
