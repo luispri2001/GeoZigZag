@@ -4,3 +4,6 @@ matplotlib>=3.7,<4
 PyYAML>=6,<7
 Pillow>=9,<13
 pyproj>=3.4,<4
+
+# Robust polygon inset and continuous segment containment for headland planning
+shapely>=2,<3

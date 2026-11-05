@@ -1,0 +1,31 @@
+{
+  "vertices": [
+    [
+      42.312,
+      -6.204
+    ],
+    [
+      42.312,
+      -6.203635567025539
+    ],
+    [
+      42.31253898917047,
+      -6.203635567025539
+    ],
+    [
+      42.31253898917047,
+      -6.204
+    ]
+  ],
+  "row_spacing_m": 2,
+  "point_spacing_m": 1,
+  "row_direction_deg": 0,
+  "start_corner": "nw",
+  "robot": {
+    "kind": "ackermann",
+    "clearance_m": 0.8,
+    "headland_m": 8,
+    "wheelbase_m": 1,
+    "max_steering_deg": 35
+  }
+}

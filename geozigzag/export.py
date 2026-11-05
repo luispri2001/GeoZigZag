@@ -21,7 +21,8 @@ def export_csv(waypoints: Sequence[dict[str, float]], path: str | Path) -> Path:
     output = Path(path)
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=EXPORT_FIELDS)
+        fields = EXPORT_FIELDS + tuple(key for key in ("action", "phase") if any(key in w for w in waypoints))
+        writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
         writer.writerows(waypoint_record(waypoint) for waypoint in waypoints)
     return output
@@ -45,6 +46,9 @@ def export_ros_yaml(waypoints: Sequence[dict[str, float]], path: str | Path) -> 
                 f"      qw: {record['qw']:.12f}",
             ]
         )
+        for key in ("action", "phase"):
+            if key in waypoint:
+                lines.append(f"    {key}: {json.dumps(waypoint[key])}")
     output.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return output
 

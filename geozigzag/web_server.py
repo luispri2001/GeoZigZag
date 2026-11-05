@@ -823,6 +823,25 @@ class SemanticRequestHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def do_POST(self) -> None:
+        if urlparse(self.path).path != "/api/coverage":
+            self._json_response(404, {"error": "Unknown endpoint."})
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if not 0 < length <= 128_000:
+                raise ValueError("Coverage request must contain 1–128,000 bytes.")
+            if self.headers.get_content_type() != "application/json":
+                raise ValueError("Use Content-Type: application/json.")
+            from geozigzag.robot_coverage import coverage_request
+            result = coverage_request(json.loads(self.rfile.read(length)))
+            self._json_response(200, result)
+        except (ValueError, TypeError, KeyError, OverflowError) as exc:
+            self._json_response(400, {"error": str(exc)})
+        except Exception as exc:
+            self.log_error("Coverage planning failed: %s", exc)
+            self._json_response(500, {"error": "Coverage planning failed. Check the server log."})
+
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         if parsed.path == "/api/dem/status":
