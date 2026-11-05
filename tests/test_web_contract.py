@@ -5,7 +5,9 @@ from pathlib import Path
 class WebContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.source = Path("web/index.html").read_text(encoding="utf-8")
+        cls.source = (Path("web/index.html").read_text(encoding="utf-8")
+                      + Path("web/static/studio.js").read_text(encoding="utf-8")
+                      + Path("web/static/studio.css").read_text(encoding="utf-8"))
 
     def test_edits_mark_route_pending_without_auto_generation(self) -> None:
         schedule = self.source.split("function scheduleGenerate", 1)[1].split("function finishGenerationState", 1)[0]
