@@ -29,6 +29,7 @@ let appMode = "coverage";
 let fieldMode = "rect";
 let startCorner = "nw";
 let currentWaypoints = [];
+let currentPlan = null;
 let currentBounds = null;
 let missionStops = ["water_2", "village_east"];
 let customWaypointCounter = 1;
@@ -134,7 +135,10 @@ function updateLegend() {
   const items = [];
   if (appMode === "coverage") {
     if (currentCoveragePolygon()) items.push(["poly", "Field boundary"]);
-    if (currentWaypoints.length) items.push(["coverage", "Furrows"]);
+    if (currentWaypoints.length) {
+      items.push(["coverage", "Crop rows"]);
+      items.push(["headland", "Headland turns"]);
+    }
   } else {
     const strategy = safeVal("routeStrategy", "direct");
     if (currentWaypoints.length) {
@@ -238,7 +242,7 @@ function setRunState(type, title, detail = "") {
 function setDownloadsEnabled(enabled) {
   const row = $("downloadsRow");
   if (row) row.classList.toggle("stale", !enabled);
-  for (const id of ["downloadCsv", "downloadYaml"]) {
+  for (const id of ["downloadCsv", "downloadYaml", "downloadPlan"]) {
     const a = $(id);
     if (!a) continue;
     a.classList.toggle("disabled", !enabled);
@@ -255,6 +259,10 @@ function setGenerateBusy(isBusy) {
   btn.textContent = isBusy ? "Generating…" : "Generate route";
 }
 function markDirty(reason = "Pending changes.", auto = false) {
+  generationToken += 1;
+  setGenerateBusy(false);
+  setLoadingVisible(false);
+  currentPlan = null;
   routeDirty = true;
   document.body.classList.add("route-stale");
   setDownloadsEnabled(false);
@@ -298,8 +306,10 @@ function failGenerationState(message) {
   const elapsed = generationStartedAtMs ? performance.now() - generationStartedAtMs : lastProcessingMs;
   const suffix = elapsed ? ` · after ${formatProcessingTime(elapsed)}` : "";
   setRunState("err", "Route could not be generated", `Check route details.${suffix}`);
-  setStatus("Route could not be generated. Check route details for more information.", "err");
+  setStatus(`Route could not be generated. ${message}`, "err");
+  currentPlan = null;
   setRouteDetails([message], "Error details");
+  $("routeDetails").open = true;
   if (elapsed) setTimingState("err", `Time to error: ${formatProcessingTime(elapsed)}`);
   updateLegend();
 }
@@ -803,32 +813,6 @@ function closePoly() {
   scheduleGenerate(`Polygon closed with ${polyVertices.length} vertices.`);
 }
 
-function generateRectCoverage() {
-  const rowSpacing = Math.max(0.1, Number($("rowSpacing").value || 0.75));
-  const pointSpacing = Math.max(0.1, Number($("pointSpacing").value || 5));
-  const c = getCorners();
-  const polygon = [c.nw, c.ne, c.se, c.sw];
-  if (polygonAreaLatLng(polygon) < 0.05) throw new Error("The field is too small or invalid.");
-  const origin = polygonOrigin(polygon);
-  const bearing = getEffectiveFurrowBearing(polygon, origin);
-  const rowUnit = bearingToUnit(bearing);
-  const sweepUnit = [-rowUnit[1], rowUnit[0]];
-  const target = polygonStartTarget(polygon, origin, startCorner);
-  const candidates = [];
-  for (const flipRows of [false, true]) {
-    for (const flipDirection of [false, true]) {
-      const gen = generateRowsForPolygon(polygon, rowUnit, sweepUnit, rowSpacing, pointSpacing, origin, flipRows, flipDirection);
-      if (!gen.points.length) continue;
-      const start = llToXY(gen.points[0][0], gen.points[0][1], origin);
-      const score = Math.hypot(start[0] - target[0], start[1] - target[1]);
-      candidates.push({...gen, score});
-    }
-  }
-  if (!candidates.length) throw new Error("No valid furrows could be calculated inside the rectangle.");
-  candidates.sort((a,b) => a.score - b.score);
-  const best = candidates[0];
-  return {waypoints: toWaypoints(best.points), rows: best.rows, polygon, message: `Generated ${best.points.length} coverage points at ${Math.round(bearing)}°.`};
-}
 function longestEdgeBearing(poly, origin) {
   let best = {d: -1, bearing: 0};
   for (let i = 0; i < poly.length; i++) {
@@ -842,80 +826,6 @@ function longestEdgeBearing(poly, origin) {
   }
   return best.bearing;
 }
-function polygonStartTarget(poly, origin, corner) {
-  const xy = poly.map(p => llToXY(p[0], p[1], origin));
-  const minX = Math.min(...xy.map(p => p[0]));
-  const maxX = Math.max(...xy.map(p => p[0]));
-  const minY = Math.min(...xy.map(p => p[1]));
-  const maxY = Math.max(...xy.map(p => p[1]));
-  return {
-    nw: [minX, maxY],
-    ne: [maxX, maxY],
-    sw: [minX, minY],
-    se: [maxX, minY]
-  }[corner] || [minX, maxY];
-}
-function generateRowsForPolygon(poly, rowUnit, sweepUnit, spacing, pointSpacing, origin, flipRows, flipDirection) {
-  const xy = poly.map(p => llToXY(p[0], p[1], origin));
-  const projected = xy.map(p => ({s: p[0]*sweepUnit[0] + p[1]*sweepUnit[1], r: p[0]*rowUnit[0] + p[1]*rowUnit[1]}));
-  const minS = Math.min(...projected.map(p => p.s));
-  const maxS = Math.max(...projected.map(p => p.s));
-  let sValues = positions(minS, maxS, spacing);
-  if (flipRows) sValues = sValues.reverse();
-  const rows = [];
-  sValues.forEach(s => {
-    const intersections = [];
-    for (let i = 0; i < projected.length; i++) {
-      const a = projected[i];
-      const b = projected[(i + 1) % projected.length];
-      if (Math.abs(a.s - b.s) < 1e-9) continue;
-      const crosses = (s >= Math.min(a.s, b.s) && s <= Math.max(a.s, b.s));
-      if (!crosses) continue;
-      const t = (s - a.s) / (b.s - a.s);
-      if (t < -1e-9 || t > 1 + 1e-9) continue;
-      intersections.push(a.r + t * (b.r - a.r));
-    }
-    intersections.sort((a,b) => a - b);
-    for (let i = 0; i < intersections.length - 1; i += 2) {
-      const a = intersections[i];
-      const b = intersections[i + 1];
-      if (Math.abs(b - a) < 0.05) continue;
-      let rValues = positions(a, b, pointSpacing);
-      rows.push(rValues.map(r => xyToLL(sweepUnit[0]*s + rowUnit[0]*r, sweepUnit[1]*s + rowUnit[1]*r, origin)));
-    }
-  });
-  const route = [];
-  rows.forEach((row, i) => {
-    const reverse = (i % 2 === 1) !== flipDirection;
-    appendRoutePoints(route, reverse ? row.slice().reverse() : row);
-  });
-  return {points: route, rows: rows.length};
-}
-function generatePolyCoverage() {
-  if (polyVertices.length < 3) throw new Error("Add at least 3 vertices to generate furrows in free polygon mode.");
-  const rowSpacing = Math.max(0.1, Number($("rowSpacing").value || 0.75));
-  const pointSpacing = Math.max(0.1, Number($("pointSpacing").value || 5));
-  const origin = polygonOrigin(polyVertices);
-  const bearing = getEffectiveFurrowBearing(polyVertices, origin);
-  const rowUnit = bearingToUnit(bearing);
-  const sweepUnit = [-rowUnit[1], rowUnit[0]];
-  const target = polygonStartTarget(polyVertices, origin, startCorner);
-  const candidates = [];
-  for (const flipRows of [false, true]) {
-    for (const flipDirection of [false, true]) {
-      const gen = generateRowsForPolygon(polyVertices, rowUnit, sweepUnit, rowSpacing, pointSpacing, origin, flipRows, flipDirection);
-      if (!gen.points.length) continue;
-      const start = llToXY(gen.points[0][0], gen.points[0][1], origin);
-      const score = Math.hypot(start[0] - target[0], start[1] - target[1]);
-      candidates.push({...gen, score});
-    }
-  }
-  if (!candidates.length) throw new Error("No valid polygon intersections could be calculated.");
-  candidates.sort((a,b) => a.score - b.score);
-  const best = candidates[0];
-  return {waypoints: toWaypoints(best.points), rows: best.rows, polygon: polyVertices.slice(), message: `Generated ${best.points.length} coverage points in free polygon mode at ${Math.round(bearing)}°.`};
-}
-
 function interpolateRoute(points, interval) {
   if (points.length < 2) return points;
   const origin = [points.reduce((s,p)=>s+p[0],0)/points.length, points.reduce((s,p)=>s+p[1],0)/points.length];
@@ -2807,6 +2717,7 @@ function renderCoverageField(polygon) {
   L.polygon(polygon, {color:"#f2c94c", weight:2, fillColor:"#f2c94c", fillOpacity:.12}).addTo(fieldLayer);
 }
 function renderResult(result) {
+  currentPlan = result;
   currentWaypoints = result.waypoints;
   resultLayer.clearLayers();
   missionLayer.clearLayers();
@@ -2816,12 +2727,14 @@ function renderResult(result) {
     if (fieldMode === "rect") createRectMarkers();
     else drawPolyDraft(true);
     renderCoverageField(result.polygon);
-    L.polyline(latlngs, {color:"#3a7d44", weight:4, opacity:.95}).addTo(resultLayer);
+    if (result.working_polygon) L.polygon(result.working_polygon, {color:"#3a7d44", weight:1, dashArray:"5 5", fill:false}).addTo(resultLayer);
+    (result.row_paths || [latlngs]).forEach(path => L.polyline(path, {color:"#3a7d44", weight:4, opacity:.95}).addTo(resultLayer));
+    (result.headland_paths || []).forEach(path => L.polyline(path, {color:"#d97706", weight:4, opacity:.95}).addTo(resultLayer));
   } else {
     renderMissionMarkers();
     L.polyline(latlngs, {color: routeColor(result.strategy), weight:4, opacity:.95}).addTo(resultLayer);
   }
-  latlngs.filter((_,i)=>i % Math.max(1, Math.floor(latlngs.length / 70)) === 0).forEach((p, idx) => {
+  latlngs.filter((_,i)=>currentWaypoints[i].phase !== "headland" && i % Math.max(1, Math.floor(latlngs.length / 25)) === 0).forEach((p, idx) => {
     const color = idx === 0 ? "#b65d13" : "#111";
     L.circleMarker(p, {radius:2.8, color:"#fff", weight:1, fillColor:color, fillOpacity:1}).addTo(resultLayer);
   });
@@ -2854,8 +2767,15 @@ function fitMap() {
 }
 function updateDownloads() {
   const rows = currentWaypoints.map(w => ({...w, ...yawToQuaternion(w.yaw)}));
-  const csv = ["latitude,longitude,yaw,qx,qy,qz,qw"].concat(rows.map(w => `${w.latitude.toFixed(12)},${w.longitude.toFixed(12)},${w.yaw.toFixed(12)},${w.qx.toFixed(12)},${w.qy.toFixed(12)},${w.qz.toFixed(12)},${w.qw.toFixed(12)}`)).join("\n") + "\n";
-  const yaml = "waypoints:\n" + rows.map(w => `  - latitude: ${w.latitude.toFixed(12)}\n    longitude: ${w.longitude.toFixed(12)}\n    yaw: ${w.yaw.toFixed(12)}\n    qx: ${w.qx.toFixed(12)}\n    qy: ${w.qy.toFixed(12)}\n    qz: ${w.qz.toFixed(12)}\n    qw: ${w.qw.toFixed(12)}`).join("\n") + "\n";
+  const hasActions = rows.some(w => w.action);
+  const fields = ["latitude", "longitude", "yaw", "qx", "qy", "qz", "qw", ...(hasActions ? ["action", "phase"] : [])];
+  const csv = [fields.join(","), ...rows.map(w => fields.map(key => typeof w[key] === "number" ? w[key].toFixed(12) : w[key]).join(","))].join("\n") + "\n";
+  const yaml = "waypoints:\n" + rows.map(w => {
+    let text = `  - latitude: ${w.latitude.toFixed(12)}\n    longitude: ${w.longitude.toFixed(12)}\n    yaw: ${w.yaw.toFixed(12)}\n    orientation:\n`;
+    for (const key of ["qx", "qy", "qz", "qw"]) text += `      ${key}: ${w[key].toFixed(12)}\n`;
+    if (hasActions) text += `    action: ${w.action}\n    phase: ${w.phase}\n`;
+    return text;
+  }).join("");
   const set = (id, text, name, type) => {
     const blob = new Blob([text], {type});
     const a = $(id);
@@ -2866,6 +2786,7 @@ function updateDownloads() {
   };
   set("downloadCsv", csv, `${appMode}_${fieldMode}_waypoints.csv`, "text/csv");
   set("downloadYaml", yaml, `${appMode}_${fieldMode}_waypoints.yaml`, "text/yaml");
+  set("downloadPlan", JSON.stringify(currentPlan || {}, null, 2), `${appMode}_plan.json`, "application/json");
   setDownloadsEnabled(currentWaypoints.length > 0 && !routeDirty);
 }
 async function generate() {
@@ -2883,7 +2804,7 @@ async function generate() {
   try {
     let result;
     if (appMode === "coverage") {
-      result = fieldMode === "poly" ? generatePolyCoverage() : generateRectCoverage();
+      result = await generateRobotCoverage();
     } else {
       result = await generateMissionRoute();
     }
@@ -2928,6 +2849,7 @@ function updateLiveStats() {
 function setMode(mode) {
   if (mode !== "coverage" && isDrawingRect) cancelRectDraw(false);
   appMode = mode;
+  markDirty("Planning mode selected.", false);
   $("coverageTab").classList.toggle("active", mode === "coverage");
   $("missionTab").classList.toggle("active", mode === "mission");
   $("coveragePanel").classList.toggle("hidden", mode !== "coverage");
@@ -3307,6 +3229,7 @@ function bindEvents() {
 }
 function init() {
   bindEvents();
+  bindRobotControls();
   const params = new URLSearchParams(location.search);
   const strategyParam = params.get("strategy");
   if (["direct", "osm", "cost"].includes(strategyParam)) $("routeStrategy").value = strategyParam;

@@ -7,6 +7,7 @@ class WebContractTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.source = (Path("web/index.html").read_text(encoding="utf-8")
                       + Path("web/static/studio.js").read_text(encoding="utf-8")
+                      + Path("web/static/robot-coverage.js").read_text(encoding="utf-8")
                       + Path("web/static/studio.css").read_text(encoding="utf-8"))
 
     def test_edits_mark_route_pending_without_auto_generation(self) -> None:

@@ -258,3 +258,7 @@
       body.waypoint-modal-open .waypoint-drawer { top: 27%; max-height: 158px; }
       .legend { left: 10px; bottom: 10px; }
     }
+
+.swatch.headland { background: #d97706; }
+
+.map-action-card #downloadPlan { grid-column: 1 / -1; }
