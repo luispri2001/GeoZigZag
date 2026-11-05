@@ -12,6 +12,31 @@ success and warning states, and CSV/YAML export. The Python package provides
 the deterministic implementation used by the tests, benchmark, figures,
 tables, and paper.
 
+## Robot-aware headland turns
+
+Coverage now has a **Robot & headland turns** menu for differential,
+skid-steer/tracked and Ackermann vehicles. Differential/skid-steer routes include
+explicit stationary rotations; Ackermann uses forward Dubins curves with a
+minimum radius derived from wheelbase and steering angle. Configure body
+clearance and headland inset, then generate: rows appear green and turns orange.
+A turn that cannot fit prevents export and shows an error.
+
+```bash
+# After installation, from the repository root:
+python3 -m geozigzag.coverage_cli
+python3 -m geozigzag.coverage_cli --robot differential
+python3 scripts/osm_semantic_preload.py --serve-only
+# Open http://localhost:8000/?mode=coverage
+# Press "Load reproducible field demo", select a robot, then "Generate route".
+```
+
+CLI outputs go to a new timestamped directory under `outputs/`. CSV, YAML and
+GeoJSON retain rotation actions; `plan.json` records metrics and parameters.
+Existing output directories are never overwritten by this CLI. Web downloads
+include CSV, YAML and Plan JSON. Robot-side consumers must support the exported
+stop-and-rotate actions. See [headland planning and limits](docs/robot_headlands.md)
+and [the cleanup record](docs/cleanup_and_implementation.md).
+
 ## Scope
 
 This repository prepares and validates route files. It does not claim closed-
@@ -36,7 +61,8 @@ python3 -m pip install -r requirements.txt
 ```
 
 Python 3.10 or newer is recommended. The planner uses standard-library
-geometry; PyYAML reads experiment files and Matplotlib generates publication
+geometry; Shapely handles robot-aware field insets and containment,
+PyYAML reads experiment files and Matplotlib generates publication
 figures.
 
 Compiling the manuscript also requires Make, `latexmk`, IEEEtran, TikZ, and the
@@ -269,6 +295,11 @@ geozigzag/
 └── cli.py            # compact offline demo
 ```
 
+The web markup lives in `web/index.html`, CSS and JavaScript in `web/static/`.
+`web_server.py` serves the geospatial APIs and shared robot coverage endpoint.
+`robot.py`, `headland.py` and `robot_coverage.py` separate parameters, connections
+and field planning; `coverage_cli.py` is the reproducible entry point.
+
 Additional documentation:
 
 - [Architecture and coordinate conventions](docs/architecture.md)
@@ -279,8 +310,11 @@ Additional documentation:
 
 The local semantic-cost grid is a controlled planning proxy, not a calibrated
 terrain model. Its point labels influence nearby cells and declared forbidden
-polygons are impassable. Grid paths contain discrete corners and do not enforce
-vehicle footprint, turning radius, headland width, or dynamics. Cached OSRM
+polygons are impassable. Mission grid paths and legacy evaluation coverage contain discrete corners and
+do not enforce vehicle kinematics. The new robot-aware coverage mode checks a
+disk footprint, headland containment and Ackermann minimum radius, with the
+limitations described in [the headland planning note](docs/robot_headlands.md).
+Neither mode models dynamics. Cached OSRM
 routes are included to measure network detours and snap distance, not to assert
 that mapped roads are safe or reachable by an agricultural robot.
 

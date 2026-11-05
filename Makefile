@@ -1,7 +1,7 @@
 PYTHON ?= python3
 EVALUATION_OUT ?= outputs/evaluation
 
-.PHONY: test evaluate sync-paper-assets paper reproduce
+.PHONY: test test-integration serve coverage-demo evaluate sync-paper-assets paper reproduce
 
 test:
 	$(PYTHON) -m unittest discover -s tests -p "test_*.py"
@@ -22,3 +22,13 @@ paper: sync-paper-assets
 
 reproduce: test evaluate paper
 	@echo "Reproduction complete: $(EVALUATION_OUT) and paper/build/main.pdf"
+
+# These checks never need ROS, Gazebo, or live map services.
+test-integration:
+	$(PYTHON) -m unittest discover -s tests/integration -p "test_*.py"
+
+serve:
+	$(PYTHON) scripts/osm_semantic_preload.py --serve-only
+
+coverage-demo:
+	$(PYTHON) -m geozigzag.coverage_cli --config configs/robot_coverage_demo.json

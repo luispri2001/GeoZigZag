@@ -20,8 +20,11 @@ WGS84 field/targets + parameters + semantic zones
              external ROS 2 consumer
 ```
 
-The browser is an authoring interface. The Python modules are the reproducible
-reference implementation used for evaluation.
+The browser is an authoring interface. Robot-aware coverage calls the same
+Python planner as the CLI via `POST /api/coverage`; mission routing still has a
+browser implementation and Python reference used for evaluation. HTML, CSS and
+JavaScript are separated in `web/`. See [robot headland planning](robot_headlands.md)
+for footprint, kinematics, coordinate references and the action export contract.
 
 ## Coordinates and orientation
 
