@@ -112,6 +112,108 @@ class RobotCoverageTests(unittest.TestCase):
             2,
         )
 
+    def test_route_matrix_across_robot_types_fields_and_row_bearings(self):
+        small_ackermann = RobotProfile(
+            kind="ackermann",
+            clearance_m=0.55,
+            headland_m=4,
+            wheelbase_m=0.8,
+            max_steering_deg=50,
+        )
+        field_shapes = {
+            "rectangle": field_xy([(0, 0), (24, 0), (24, 38), (0, 38)]),
+            "trapezoid": field_xy([(0, 0), (42, 0), (38, 58), (4, 54)]),
+        }
+        cases = [
+            ("rectangle", "differential", 0, 2.5, RobotProfile(headland_m=2)),
+            ("rectangle", "differential", 35, 1.2, RobotProfile(headland_m=2)),
+            (
+                "rectangle",
+                "skid_steer",
+                90,
+                1.2,
+                RobotProfile(kind="skid_steer", headland_m=3),
+            ),
+            ("rectangle", "ackermann", 0, 1.2, small_ackermann),
+            ("rectangle", "ackermann", 35, 1.2, small_ackermann),
+            ("rectangle", "ackermann", 90, 1.2, small_ackermann),
+            ("trapezoid", "differential", 35, 1.2, RobotProfile(headland_m=3)),
+            (
+                "trapezoid",
+                "skid_steer",
+                90,
+                1.2,
+                RobotProfile(kind="skid_steer", headland_m=2),
+            ),
+            ("trapezoid", "ackermann", 0, 2.5, small_ackermann),
+            ("trapezoid", "ackermann", 35, 1.2, small_ackermann),
+            ("trapezoid", "ackermann", 90, 1.2, small_ackermann),
+        ]
+        for shape, kind, bearing, row_spacing, profile in cases:
+            with self.subTest(
+                shape=shape, robot=kind, bearing=bearing, spacing=row_spacing
+            ):
+                result = generate_robot_coverage(
+                    field_shapes[shape], row_spacing, 0.9, bearing, robot=profile
+                )
+                self.assertGreater(result["rows"], 1)
+                self.assertGreater(result["metrics"]["total_route_length_m"], 0)
+                self.assertAlmostEqual(
+                    result["metrics"]["curve_sampling_difference_m"],
+                    result["metrics"]["total_route_length_m"]
+                    - result["metrics"]["waypoint_polyline_length_m"],
+                    delta=1e-6,
+                )
+                origin = result["origin_wgs84"]
+                field = Polygon(
+                    [ll_to_xy(*point, *origin) for point in field_shapes[shape]]
+                )
+                route = LineString(
+                    [
+                        ll_to_xy(w["latitude"], w["longitude"], *origin)
+                        for w in result["waypoints"]
+                    ]
+                )
+                self.assertTrue(field.buffer(-profile.clearance_m + 1e-5).covers(route))
+
+    def test_large_ackermann_radius_needs_a_wider_headland(self):
+        field = field_xy([(0, 0), (82, 0), (82, 54), (0, 54)])
+        vehicle = RobotProfile(
+            kind="ackermann",
+            clearance_m=0.75,
+            headland_m=8,
+            wheelbase_m=2.4,
+            max_steering_deg=30,
+        )
+        with self.assertRaisesRegex(ValueError, "No checked ackermann turn"):
+            generate_robot_coverage(field, 2.5, 1, 0, robot=vehicle)
+        result = generate_robot_coverage(
+            field,
+            2.5,
+            1,
+            0,
+            robot=RobotProfile(
+                kind="ackermann",
+                clearance_m=0.75,
+                headland_m=12,
+                wheelbase_m=2.4,
+                max_steering_deg=30,
+            ),
+        )
+        self.assertEqual(result["rows"], 23)
+        self.assertGreater(result["robot"]["minimum_radius_m"], 4)
+
+    def test_turns_that_cross_the_crop_area_are_rejected(self):
+        trapezoid = field_xy([(0, 0), (42, 0), (38, 58), (4, 54)])
+        with self.assertRaisesRegex(ValueError, "No checked differential turn"):
+            generate_robot_coverage(
+                trapezoid,
+                1.2,
+                0.9,
+                35,
+                robot=RobotProfile(kind="differential", headland_m=2),
+            )
+
     def test_all_start_corners_and_arbitrary_bearing(self):
         for corner in ["nw", "ne", "sw", "se"]:
             result = self.plan(start_corner=corner)

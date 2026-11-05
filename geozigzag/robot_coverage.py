@@ -127,6 +127,17 @@ def generate_robot_coverage(
         0.2,
         robot.minimum_radius_m * 0.05 if robot.minimum_radius_m else 0.2,
     )
+    if robot.minimum_radius_m:
+        # Bound arc-to-chord deviation so continuous-curve checks stay accurate
+        # while still sampling larger turn radii more densely than the 0.2 m cap.
+        max_arc_step = (
+            robot.minimum_radius_m
+            * 2
+            * math.acos(
+                1 - min(0.00025, robot.minimum_radius_m) / robot.minimum_radius_m
+            )
+        )
+        spacing = min(spacing, max_arc_step)
     estimated = sum(math.dist(*r) for r in rows) / point_spacing_m
     if estimated > MAX_WAYPOINTS:
         raise ValueError("Route exceeds 100,000 waypoints. Increase waypoint spacing.")
@@ -175,9 +186,16 @@ def generate_robot_coverage(
                         or abs(normalize_angle(sampled[-1][2] - yaw)) > 1e-6
                     ):
                         raise RuntimeError("Dubins endpoint verification failed.")
-                    if headland.covers(
-                        LineString([p[:2] for p in sampled]).buffer(sagitta)
-                    ):
+                    chord_path = LineString([p[:2] for p in sampled])
+                    # At row endpoints the turn touches the working-area
+                    # boundary by design. Buffering the chord path there makes
+                    # every feasible U-turn appear to overlap the crop rows.
+                    # Check the sampled centreline with a two-sagitta tolerance
+                    # around that boundary, then check the entire chord envelope
+                    # against the robot-clearance inset.
+                    if headland.buffer(2 * sagitta + 1e-8).covers(
+                        chord_path
+                    ) and allowed.covers(chord_path.buffer(sagitta)):
                         connection = sampled
                         distance = sum(lengths) * robot.minimum_radius_m
                         break
@@ -216,6 +234,11 @@ def generate_robot_coverage(
             "row",
         )
         row_length += length
+    polyline_length = sum(
+        math.dist(first[:2], second[:2]) for first, second in zip(poses, poses[1:])
+    )
+    ideal_route_length = route_length + row_length
+    sampling_difference = ideal_route_length - polyline_length
     waypoints = []
     for i, (x, y, yaw, phase) in enumerate(poses):
         lat, lon = xy_to_ll(x, y, *origin)
@@ -234,7 +257,9 @@ def generate_robot_coverage(
         "working_area_m2": work.area,
         "coverage_rows": len(rows),
         "waypoints": len(waypoints),
-        "total_route_length_m": route_length + row_length,
+        "total_route_length_m": ideal_route_length,
+        "waypoint_polyline_length_m": polyline_length,
+        "curve_sampling_difference_m": max(0.0, sampling_difference),
         "average_row_length_m": row_length / len(rows),
         "row_spacing_m": row_spacing_m,
         "waypoint_spacing_m": point_spacing_m,

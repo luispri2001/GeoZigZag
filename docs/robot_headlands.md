@@ -60,13 +60,13 @@ sweep width so no tiny extra gap appears at its far edge. The chosen start
 corner selects the closest of four alternating row orders.
 
 Connections must stay in the remaining headland region. Dubins curves are
-sampled at at most 0.2 m and 0.05 radians per arc step. Sampled chords are
-buffered by an upper bound on arc sagitta, so containment covers the circular
-arc between samples. A 1 mm geometric tolerance is allowed at the working
-boundary to accommodate the connection endpoints. Straight differential
-connections are checked as continuous segments, including in concave fields.
-Shapely supplies polygon inset, clipping and containment instead of duplicating
-fragile browser geometry.
+sampled at at most 0.2 m, 0.05 radians per arc step, and 0.25 mm of arc-to-chord
+deviation. Sampled chords are buffered by that deviation and checked against
+the robot-clearance inset. A tolerance of at most 0.75 mm is allowed where a
+turn meets a row endpoint. Straight differential connections are checked as
+continuous segments, including in concave fields. Shapely supplies polygon
+inset, clipping and containment instead of duplicating fragile browser
+geometry.
 
 If the working inset splits into disconnected polygons, or no candidate
 connection fits, generation fails with actionable parameter guidance. It does
@@ -89,9 +89,38 @@ controller. YAML uses the same nested `orientation` schema in web and CLI.
 
 `plan.json` contains row paths, headland paths, maneuver index ranges and Dubins
 words, robot parameters, local origin, and area/working area, row count,
-waypoint count, route length, average row length, spacings, direction and start
-corner. CLI also saves `request.json`; browser Plan JSON embeds its request.
-Use separate directories for repeated experiments.
+waypoint count, average row length, spacings, direction and start corner.
+`total_route_length_m` reports the analytic length of the continuous Dubins
+arcs. `waypoint_polyline_length_m` reports the length of the sampled straight
+segments in the exported coordinates, and `curve_sampling_difference_m`
+reports the small difference between them. In the 120-case configuration
+matrix, that difference stayed below 2 cm. CLI also saves `request.json`;
+browser Plan JSON embeds its request. Use separate directories for repeated
+experiments.
+
+## Checked example routes
+
+These field-scale examples were generated with the same planner as the web UI.
+Wheelbase/steering determine Ackermann radius; field shape and row bearing
+change the turn space available.
+
+| Field | Robot | Row bearing | Headland | Min radius | Rows | Waypoints | Route |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 30 × 60 m rectangle | Differential | 0° | 2 m | — | 13 | 873 | 741.6 m |
+| 30 × 60 m rectangle | Skid-steer | 90° | 3 m | — | 44 | 1,507 | 1,046.0 m |
+| 30 × 60 m rectangle | Ackermann, 1 m wheelbase, 35° steering | 0° | 8 m | 1.43 m | 7 | 1,166 | 342.7 m |
+| 24 × 38 m rectangle | Ackermann, 0.8 m wheelbase, 50° steering | 35° | 4 m | 0.67 m | 24 | 2,797 | 438.3 m |
+| 82 × 54 m rectangle | Ackermann, 2.4 m wheelbase, 30° steering | 0° | 8 m | 4.16 m | — | — | Rejected: turn does not fit |
+| 82 × 54 m rectangle | Same Ackermann robot | 0° | 12 m | 4.16 m | 23 | 7,312 | 1,258.4 m |
+| 42 × 58 m trapezoid | Differential | 35° | 3 m | — | 43 | 1,936 | 1,354.6 m |
+
+The 120-case sweep varied five rectangular/trapezoidal/concave fields, three
+bearings and two row spacings across differential, skid-steer, and two
+Ackermann sizes. It produced 54 routes and rejected 66 geometrically infeasible
+combinations. Every accepted route passed the field-clearance, row-turn
+separation, and distance-metric checks. The unit suite keeps representative
+rectangle and trapezoid cases plus a large-radius Ackermann case whose
+headland must grow from 8 m to 12 m.
 
 ## Limits and checks
 
