@@ -1,0 +1,3 @@
+-r requirements.txt
+# Parse exported YAML in the offline test suite.
+PyYAML>=6,<7

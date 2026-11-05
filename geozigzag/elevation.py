@@ -12,58 +12,7 @@ import math
 import re
 import threading
 import urllib.request
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
-
-from .geometry import ll_to_xy
-
-
-class ElevationModel(Protocol):
-    """Minimal elevation source required by the planner."""
-
-    def elevation_m(self, latitude: float, longitude: float) -> float:
-        """Return elevation in metres for one WGS84 coordinate."""
-
-    def provenance(self) -> dict[str, object]:
-        """Return serialisable source metadata for experiment records."""
-
-
-@dataclass(frozen=True)
-class SyntheticGaussianHillElevation:
-    """Smooth isolated hill used to demonstrate terrain-cost avoidance."""
-
-    origin_latitude: float
-    origin_longitude: float
-    amplitude_m: float = 10.0
-    sigma_m: float = 8.0
-    base_elevation_m: float = 800.0
-
-    def __post_init__(self) -> None:
-        if self.sigma_m <= 0:
-            raise ValueError("Gaussian hill sigma must be positive.")
-
-    def elevation_m(self, latitude: float, longitude: float) -> float:
-        east_m, north_m = ll_to_xy(
-            latitude,
-            longitude,
-            self.origin_latitude,
-            self.origin_longitude,
-        )
-        radius_squared = east_m * east_m + north_m * north_m
-        return self.base_elevation_m + self.amplitude_m * math.exp(
-            -radius_squared / (2.0 * self.sigma_m * self.sigma_m)
-        )
-
-    def provenance(self) -> dict[str, object]:
-        return {
-            "type": "synthetic_gaussian_hill",
-            "purpose": "offline_test_only",
-            "origin_wgs84": [self.origin_latitude, self.origin_longitude],
-            "base_elevation_m": self.base_elevation_m,
-            "amplitude_m": self.amplitude_m,
-            "sigma_m": self.sigma_m,
-        }
 
 
 class MapboxTerrainRgbDirectory:
@@ -100,7 +49,9 @@ class MapboxTerrainRgbDirectory:
         self._images: dict[tuple[int, int], object] = {}
 
     @classmethod
-    def from_terrain_world(cls, world_directory: str | Path) -> "MapboxTerrainRgbDirectory":
+    def from_terrain_world(
+        cls, world_directory: str | Path
+    ) -> "MapboxTerrainRgbDirectory":
         """Build the source from a gazebo_terrain_generator working directory."""
         world = Path(world_directory)
         metadata_path = world / "metadata.json"
@@ -112,9 +63,13 @@ class MapboxTerrainRgbDirectory:
         return cls(world / "dem", zoom=int(metadata["dem_resolution"]))
 
     @staticmethod
-    def _tile_position(latitude: float, longitude: float, zoom: int) -> tuple[float, float]:
+    def _tile_position(
+        latitude: float, longitude: float, zoom: int
+    ) -> tuple[float, float]:
         if not (-85.05112878 <= latitude <= 85.05112878):
-            raise ValueError("Web Mercator DEM sampling is limited to ±85.05112878 degrees.")
+            raise ValueError(
+                "Web Mercator DEM sampling is limited to ±85.05112878 degrees."
+            )
         if not (-180.0 <= longitude <= 180.0):
             raise ValueError("Longitude must be between -180 and 180 degrees.")
         scale = 2**zoom
@@ -179,8 +134,7 @@ class TerrariumTileElevation:
     """
 
     DEFAULT_URL = (
-        "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/"
-        "{zoom}/{x}/{y}.png"
+        "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{zoom}/{x}/{y}.png"
     )
 
     def __init__(
@@ -219,7 +173,9 @@ class TerrariumTileElevation:
             with urllib.request.urlopen(request, timeout=self.timeout_s) as response:
                 payload = response.read(8_000_001)
         except Exception as error:
-            raise RuntimeError(f"Could not download real DEM tile {self.zoom}/{tile_x}/{tile_y}: {error}") from error
+            raise RuntimeError(
+                f"Could not download real DEM tile {self.zoom}/{tile_x}/{tile_y}: {error}"
+            ) from error
         if len(payload) > 8_000_000:
             raise RuntimeError("DEM tile exceeded the 8 MB safety limit.")
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -245,7 +201,9 @@ class TerrariumTileElevation:
                 image = Image.open(path).convert("RGB")
                 image.load()
             except Exception as error:
-                raise RuntimeError(f"Cached DEM tile is invalid: {path}: {error}") from error
+                raise RuntimeError(
+                    f"Cached DEM tile is invalid: {path}: {error}"
+                ) from error
             self._images[key] = image
             return image
 

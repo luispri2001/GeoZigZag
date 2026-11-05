@@ -7,7 +7,7 @@ From the repository root, with the virtual environment activated:
 ```bash
 python -m geozigzag.coverage_cli
 python -m geozigzag.coverage_cli --robot differential
-python scripts/osm_semantic_preload.py --serve-only
+python -m geozigzag
 ```
 
 The CLI prints a newly created timestamped output directory. To name a run, add
@@ -66,8 +66,7 @@ arc between samples. A 1 mm geometric tolerance is allowed at the working
 boundary to accommodate the connection endpoints. Straight differential
 connections are checked as continuous segments, including in concave fields.
 Shapely supplies polygon inset, clipping and containment instead of duplicating
-fragile browser geometry. The existing Python coverage functions remain for
-historical evaluations and downstream imports.
+fragile browser geometry.
 
 If the working inset splits into disconnected polygons, or no candidate
 connection fits, generation fails with actionable parameter guidance. It does
@@ -119,12 +118,3 @@ infeasible fields, invalid inputs and rotation-preserving exports. Integration
 checks start an ephemeral local HTTP server, compare API and CLI results,
 verify static assets and error responses, and ensure repeated CLI output paths
 cannot overwrite data. No Gazebo, ROS or external map services are required.
-
-## Browser example
-
-The screenshot below records the fixed geometric fixture with Ackermann selected.
-The satellite basemap is context only; coverage mode does not classify its land
-use or buildings. The illustrated route is not an assertion that this fixture
-is a suitable real field. See the limits above before using surveyed polygons.
-
-![Robot menu and checked Ackermann headland turns](screenshots/robot-headland-ackermann.jpg)

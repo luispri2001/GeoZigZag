@@ -1,321 +1,152 @@
 # GeoZigzag Studio
 
-GeoZigzag Studio is a reproducible route-preparation workflow for agricultural
-robotics. It combines:
+A local web application for agricultural field coverage and geographic mission
+planning. Draw a field on the map, configure rows and robot kinematics, preview
+the route, and download waypoints and plan metadata.
 
-- dense boustrophedon coverage inside a selected field; and
-- sparse semantic georouting between ordered geographic targets.
+## Install and run
 
-The browser supports map-based editing, explicit route generation, manually
-drawn building/water/forest zones, direct/local-cost/OSRM routing, visible
-success and warning states, and CSV/YAML export. The Python package provides
-the deterministic implementation used by the tests, benchmark, figures,
-tables, and paper.
-
-## Robot-aware headland turns
-
-Coverage now has a **Robot & headland turns** menu for differential,
-skid-steer/tracked and Ackermann vehicles. Differential/skid-steer routes include
-explicit stationary rotations; Ackermann uses forward Dubins curves with a
-minimum radius derived from wheelbase and steering angle. Configure body
-clearance and headland inset, then generate: rows appear green and turns orange.
-A turn that cannot fit prevents export and shows an error.
-
-```bash
-# After installation, from the repository root:
-python3 -m geozigzag.coverage_cli
-python3 -m geozigzag.coverage_cli --robot differential
-python3 scripts/osm_semantic_preload.py --serve-only
-# Open http://localhost:8000/?mode=coverage
-# Press "Load reproducible field demo", select a robot, then "Generate route".
-```
-
-CLI outputs go to a new timestamped directory under `outputs/`. CSV, YAML and
-GeoJSON retain rotation actions; `plan.json` records metrics and parameters.
-Existing output directories are never overwritten by this CLI. Web downloads
-include CSV, YAML and Plan JSON. Robot-side consumers must support the exported
-stop-and-rotate actions. See [headland planning and limits](docs/robot_headlands.md)
-and [the cleanup record](docs/cleanup_and_implementation.md).
-
-## Scope
-
-This repository prepares and validates route files. It does not claim closed-
-loop navigation, Gazebo completion, or physical robot validation. CSV/YAML
-files are ROS-style interchange artifacts; a robot-side consumer must still
-perform coordinate-frame conversion, localization, path tracking, and safety
-checks.
-
-See [the upstream integration audit](docs/upstream_integration_audit.md) for the
-verified boundary with Geo2Gazebo, Wildboar, and Jabali CropFollow.
-
-## Installation
+Requires Python 3.10 or newer.
 
 ```bash
 git clone git@github.com:luispri2001/GeoZigZag.git
 cd GeoZigZag
-
 python3 -m venv .venv
 source .venv/bin/activate
-python3 -m pip install --upgrade pip
-python3 -m pip install -r requirements.txt
+python -m pip install -r requirements.txt
+python -m geozigzag
 ```
 
-Python 3.10 or newer is recommended. The planner uses standard-library
-geometry; Shapely handles robot-aware field insets and containment,
-PyYAML reads experiment files and Matplotlib generates publication
-figures.
-
-Compiling the manuscript also requires Make, `latexmk`, IEEEtran, TikZ, and the
-usual LaTeX graphics packages. On Ubuntu 22.04/24.04:
+Open [localhost:8000](http://localhost:8000/). The server prints the actual port
+and tries the next one if the default is busy. `make serve` is equivalent.
+Do not use `file://` or a standalone static server: coverage and geospatial
+features require the included Python APIs.
 
 ```bash
-sudo apt install make latexmk texlive-latex-extra texlive-pictures
+python -m geozigzag --port 8080 --no-auto-port
+python -m geozigzag --help
 ```
 
-## Web interface
+Runtime dependencies are Shapely (field geometry), Pillow (DEM tiles) and pyproj
+(Catastro coordinate transforms). Leaflet and map imagery load from public
+services. Uncached elevation, Catastro, OSM and optional OSRM requests require
+internet access; downloaded geospatial responses are cached locally.
 
-Start the included web/API server:
+## Field coverage
+
+Open [Coverage](http://localhost:8000/?mode=coverage), draw a rectangle or polygon,
+then configure row spacing, waypoint spacing, bearing and start corner.
+
+The **Robot & headland turns** panel supports:
+
+- **Differential drive:** stop, rotate in place, move to the next row, rotate.
+- **Skid-steer / tracked:** the same ideal geometry; soil slip is not modelled.
+- **Ackermann:** forward Dubins turns; minimum radius comes from wheelbase and
+  maximum steering angle.
+
+Set the body clearance radius and headland inset. Clearance must enclose the
+complete robot and implement about the rotation centre, or rear axle for
+Ackermann. Press **Generate route**: working rows are green and turns orange.
+A turn that cannot fit inside the checked field/headland prevents export.
+Changing parameters invalidates downloads until regeneration.
+
+**Load reproducible field demo** provides a fixed geometric example. It is not a
+survey of real land use or obstacles at those coordinates. The same planner is
+available from the command line:
 
 ```bash
-python3 scripts/osm_semantic_preload.py --serve-only
+python -m geozigzag.coverage_cli
+python -m geozigzag.coverage_cli --robot differential
+python -m geozigzag.coverage_cli --config configs/robot_coverage_demo.json
 ```
 
-Open <http://127.0.0.1:8000/>. The normal URL opens **Mission route** with
-**Local costmap A\*** and the real DEM server selected. Useful direct links are:
+Each run creates a new timestamped directory under `outputs/`. `--out outputs/my-new-run` selects an explicit directory; existing directories are
+rejected to prevent overwriting results.
 
-```text
-http://127.0.0.1:8000/?mode=coverage
-http://127.0.0.1:8000/
-http://127.0.0.1:8000/?mode=mission&strategy=osm&preset=balanced
-```
+See [robot headland planning](docs/robot_headlands.md) for parameters, geometry,
+actions and limitations.
 
-The first terrain request downloads real Terrarium elevation tiles from the
-[AWS Open Data Terrain Tiles dataset](https://registry.opendata.aws/terrain-tiles/)
-and caches them under `data/dem_cache/`; later requests for the same area work
-from that local cache. Map tiles, uncached DEM areas, and live OSRM routing need
-internet access. Editing a field, target list, spacing, route mode, or semantic
-zone marks the existing route as pending and disables stale exports; press
-**Generate route** to create a new result.
+## Mission routing
 
-### Account for buildings, water, and forest
+The normal URL opens **Mission route**, with local semantic A* and the real DEM.
+Use the waypoint drawer or click the map to add ordered targets. Strategies are
+Direct interpolation, Local costmap A*, and optional OSRM paths.
 
-In **Mission route**, open **Semantic zones**. There are three inputs:
+Local A* downloads a bounded corridor of public semantic data before generation.
+Spanish Cadastre supplies buildings where available; OSM adds buildings, water,
+forest and scrub. Buildings/water are blocked, forest/scrub add traversal cost,
+and DEM slope adds cost or blocks steep cells. Manual semantic zones are also
+supported. Missing mandatory data or invalid obstacle clearance produces a
+visible error. DEM failures never silently substitute synthetic or flat terrain.
 
-- in Spain, the official Cadastre INSPIRE WFS is the primary building source;
-- OpenStreetMap supplies complementary buildings, water, forest and shrub
-  areas (`scrub`, `shrubbery`, `heath`, and `landcover=shrubs`);
-- choose a manual zone type and press **Draw zone** for missing or corrected
-  features.
+This is geographic route preparation. Mission paths do not enforce the robot
+headland kinematics used in Coverage.
 
-- buildings and water are impassable;
-- forest has a high traversal cost, so local A* prefers a reasonable detour but
-  can cross it when no practical alternative exists;
-- scrub has a smaller traversal penalty.
+### Elevation inputs
 
-Forest and scrub polygons above the configured minimum area create resource
-waypoints at the center of the visible polygon. By default, up to six safe,
-spatially distinct vegetation targets are inserted into the mission using a
-minimum-detour ordering that preserves the original start and destination.
-The UI can change the limit or switch to **Create only** for manual selection.
-Candidates inside or too close to buildings/water are rejected. Buildings do
-not create waypoints.
-
-Choose **Local costmap A*** and press **Generate route**. Before planning, the
-web application automatically requests both sources in a configurable corridor
-around the mission. Catastro footprints take precedence over duplicate OSM
-buildings. Buildings and water become hard obstacles in the same A* grid that
-receives the DEM slope costs. The A* domain is limited to the downloaded public
-data coverage, and the generated polyline is checked again with the configured
-safety margin before export. A missing mandatory Catastro response in Spain,
-an endpoint inside an obstacle, or a remaining intersection stops generation.
-
-OSM **Balanced** and **Strict** validate buildings and water as hard
-obstacles; forest cost is local to the A* strategy because the public OSRM
-service does not accept this custom cost layer. Zones are stored in the
-browser. Existing saved forbidden zones remain compatible and are interpreted
-as buildings.
-
-The browser requests `/api/catastro/buildings` and `/api/osm/semantic` in
-parallel. The first endpoint transforms WGS84 to the correct ETRS89/UTM zone,
-parses official GML and caches each bounded response for seven days. The OSM
-endpoint falls back to public Overpass instances. A reproducible OSM cache can
-be prepared before field work:
+The default real DEM uses public AWS Terrarium tiles, cached under
+`data/dem_cache/`. Alternative inputs:
 
 ```bash
-python3 scripts/osm_semantic_preload.py \
-  --bbox 42.306 -6.208 42.316 -6.198 \
-  --force --serve
+# GeoTIFF support is optional.
+python -m pip install -r requirements-dem.txt
+python -m geozigzag --dem-geotiff /path/to/elevation.tif
+
+# Existing raw Terrain-RGB tiles with metadata.json and dem/.
+python -m geozigzag --terrain-world /path/to/terrain-directory
 ```
 
-OSM files are written under `web/osm_semantic_cache/`; Catastro responses are
-written under `data/catastro_cache/`. Neither cache is committed. Use
-`--no-catastro` only for locations outside its coverage or explicit diagnostic
-comparisons. OpenStreetMap remains collaborative and potentially incomplete;
-satellite imagery is visual context, not an automatic detector.
+`--no-dem` disables server elevation; also select **Off** in the UI to plan
+without it. `--no-catastro` is available for locations outside its coverage or
+explicit diagnostics. Catastro caches use `data/catastro_cache/`, and OSM caches
+use `web/osm_semantic_cache/`. Caches and route outputs are not committed.
 
-## Reproduce the paper results
+## Exports
+
+Web downloads: CSV, YAML and Plan JSON. Coverage CLI also exports GeoJSON.
+Coordinates are WGS84 latitude/longitude; yaw is in radians counterclockwise
+from east. Quaternions use the same planar ENU orientation.
+
+Coverage exports retain `action` (`drive` or `rotate`) and `phase` (`row` or
+`headland`). A stationary rotation intentionally repeats a position with a new
+yaw. Consumers must stop and execute that action rather than deduplicating it.
+Plan JSON includes robot settings, route geometry and metrics. No ROS/Gazebo
+controller, timing, dynamic model or frame conversion is provided.
+
+## Tests
 
 ```bash
-make reproduce
-```
-
-This command runs the offline tests, evaluates the versioned scenarios,
-generates route artifacts and figures, and compiles the IEEE manuscript. Main
-outputs are:
-
-```text
-outputs/evaluation/results.csv
-outputs/evaluation/sensitivity.csv
-outputs/evaluation/summary.json
-outputs/evaluation/paper_results.tex
-outputs/evaluation/paper_coverage_results.tex
-outputs/evaluation/figures/*.png
-outputs/evaluation/routes/<scenario>/<strategy>/
-paper/generated/paper_results.tex
-paper/generated/paper_coverage_results.tex
-paper/figures/generated/*.png
-paper/build/main.pdf
-paper/main.pdf
-```
-
-The generated paper table and figures are also versioned under `paper/`, so the
-manuscript source and its publication assets remain together in the repository.
-
-The evaluation never calls a live routing service. It uses the OSRM response
-fixture in `data/osrm_fixture.json`, including its retrieval date, source,
-profile, geometry, and snap distances.
-
-Run individual stages with:
-
-```bash
+python -m pip install -r requirements-dev.txt
 make test
-make evaluate
-make paper
-
-python3 -m geozigzag.evaluate \
-  --config configs/evaluation.yaml \
-  --out outputs/evaluation
+make test-integration
 ```
 
-## CLI demo
+Tests cover coverage kinematics, containment, exports, DEM decoding, Catastro,
+OSM parsing/caches, web contracts, API/CLI consistency and output protection.
+They do not require live map services, ROS or Gazebo. The optional GeoTIFF test
+is skipped unless rasterio is installed.
 
-The original compact demo remains available:
-
-```bash
-python3 -m geozigzag.cli --out outputs/demo
-```
-
-It generates coverage, direct mission, and local cost-aware mission routes.
-
-## DEM-aware semantic navigation POC
-
-The local semantic A* planner can fuse its building, water, forest, scrub and
-land-cover costs with a DEM-derived slope layer. Steep cells are blocked and
-moderate slopes add traversal cost. Run the deterministic hill demo:
-
-```bash
-python3 -m geozigzag.semantic_elevation_cli \
-  --demo \
-  --out outputs/semantic-elevation-poc
-```
-
-It exports the original semantic route, the semantic+DEM route, terrain-layer
-metrics and a costmap preview without requiring Gazebo. Raw Terrain-RGB tiles
-produced by `gazebo_terrain_generator` can be used with `--terrain-world`. See
-[the semantic DEM costmap note](docs/semantic_elevation_costmap_poc.md).
-
-The production web workflow does not use the synthetic hill. Start the server
-and open the normal URL:
-
-```bash
-python3 scripts/osm_semantic_preload.py --serve-only
-
-# Open in a browser:
-http://localhost:8000/
-```
-
-Do not run the application as a standalone `file://` page: it needs the local
-Catastro, OSM and DEM endpoints. If the versioned HTML file is opened directly,
-it now redirects to `http://localhost:8000/web/index.html`; start the server
-first with the command above.
-
-By default this uses the real public Terrain Tiles DEM. Its European source is
-appropriate for broad terrain gradients, but interpolation does not turn it
-into a wheel-scale surface model. For Spain, a downloaded CNIG MDT02 GeoTIFF is
-the preferred higher-resolution input. To use another real
-source, pass either `--dem-geotiff /path/to/elevation.tif` or
-`--terrain-world /path/to/world_name`. The teal/yellow/orange/red heatmap shows
-gentle, moderate, costly, and blocked slope cells; hovering a cell reports its
-sampled percentage. The exported route is the path produced by the
-fused costmap. **Route details** reports ascent, descent, mean and maximum
-absolute route slope, elevation range, and the configured preferred/blocked
-slope thresholds. No source failure falls back to synthetic or flat elevation.
-Multi-target missions reuse the same sampled DEM grid and rendered heatmap
-across route segments. The browser A* uses a binary priority heap so automatic
-vegetation targets do not multiply DEM downloads or repeatedly sort the full
-open set.
-
-![Mission route using the visible DEM slope costmap](docs/screenshots/mission-dem-costmap.png)
-
-The versioned example loads 270 official Catastro footprints plus complementary
-OSM data. Its Catastro+OSM+DEM route contains 236 waypoints, is approximately
-550.6 m long, and has at least 2 m configured clearance from every mapped hard
-obstacle:
-
-![Mission route using Catastro buildings and real DEM costs](docs/screenshots/mission-catastro-dem-costmap.png)
-
-## Waypoint schema
-
-CSV and YAML routes contain:
-
-| Field | Definition |
-| --- | --- |
-| `latitude`, `longitude` | WGS84 coordinates in degrees |
-| `yaw` | ENU heading in radians, counter-clockwise from east |
-| `qx`, `qy`, `qz`, `qw` | Planar quaternion derived from yaw |
-
-GeoJSON bundles contain one route `LineString` plus indexed waypoint features.
-
-## Package layout
+## Repository layout
 
 ```text
-geozigzag/
-├── catastro.py       # official Spanish building-footprint adapter
-├── elevation.py      # Terrarium, GeoTIFF, and Terrain-RGB DEM sources
-├── terrain_costmap.py # slope penalties and traversability limits
-├── geometry.py       # local projection, heading, polygon operations
-├── coverage.py       # rectangle and polygon boustrophedon planners
-├── routing.py        # direct, semantic-cost A*, DEM, and OSRM adapters
-├── metrics.py        # distance, turns, area, forbidden intersections
-├── export.py         # CSV, YAML, and GeoJSON
-├── evaluation.py     # scenario execution, metrics, figures, tables
-├── evaluate.py       # python -m evaluation entry point
-├── planning.py       # stable planning facade
-├── semantic_elevation_cli.py # deterministic terrain-planning POC
-└── cli.py            # compact offline demo
+web/                  HTML, CSS and browser mission/map logic
+geozigzag/            HTTP APIs, geospatial sources and robot coverage planner
+configs/             Field fixture used by the web demo and CLI
+tests/               Unit and HTTP/CLI integration checks
+docs/                Architecture and headland/consumer documentation
+outputs/              Generated CLI routes (ignored)
+data/                 Downloaded DEM and Catastro caches (ignored)
 ```
 
-The web markup lives in `web/index.html`, CSS and JavaScript in `web/static/`.
-`web_server.py` serves the geospatial APIs and shared robot coverage endpoint.
-`robot.py`, `headland.py` and `robot_coverage.py` separate parameters, connections
-and field planning; `coverage_cli.py` is the reproducible entry point.
+[Architecture and coordinates](docs/architecture.md)
 
-Additional documentation:
+## Troubleshooting
 
-- [Architecture and coordinate conventions](docs/architecture.md)
-- [Reproducibility protocol](docs/reproducibility.md)
-- [Geo2Gazebo/Wildboar/CropFollow audit](docs/upstream_integration_audit.md)
-
-## Scientific interpretation
-
-The local semantic-cost grid is a controlled planning proxy, not a calibrated
-terrain model. Its point labels influence nearby cells and declared forbidden
-polygons are impassable. Mission grid paths and legacy evaluation coverage contain discrete corners and
-do not enforce vehicle kinematics. The new robot-aware coverage mode checks a
-disk footprint, headland containment and Ackermann minimum radius, with the
-limitations described in [the headland planning note](docs/robot_headlands.md).
-Neither mode models dynamics. Cached OSRM
-routes are included to measure network detours and snap distance, not to assert
-that mapped roads are safe or reachable by an agricultural robot.
-
-Please cite the paper in `paper/main.tex` when bibliographic details are final.
+- **API unavailable:** start `python -m geozigzag` from the repository root and
+  use the port printed by the server.
+- **No turn fits:** increase headland, change row direction/spacing, or review
+  the vehicle dimensions and steering limits.
+- **DEM/semantic request fails:** check connectivity and the visible error.
+  Cached areas can be reused; uncached public data needs a working service.
+- **Stale downloads:** regenerate after changing the field, robot or routing
+  parameters.

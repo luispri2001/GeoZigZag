@@ -93,7 +93,6 @@ const markerLayer = L.layerGroup().addTo(map);
 const rectMarkers = {};
 let rectPolygon = null;
 let polyLayer = null;
-let robotMarker = null;
 
 function $(id) { return document.getElementById(id); }
 function escapeHtml(value) {
@@ -322,14 +321,6 @@ function xyToLL(x, y, origin) {
   return [origin[0] + y / R * 180 / Math.PI, origin[1] + x / (R * scale) * 180 / Math.PI];
 }
 function normAngle(a) { return Math.atan2(Math.sin(a), Math.cos(a)); }
-function positions(a, b, spacing) {
-  const sign = b >= a ? 1 : -1;
-  const out = [];
-  if (!Number.isFinite(a) || !Number.isFinite(b) || !Number.isFinite(spacing) || spacing <= 0) return [a, b];
-  for (let v = a; sign > 0 ? v < b : v > b; v += sign * spacing) out.push(v);
-  if (!out.length || Math.abs(out[out.length - 1] - b) > 1e-6) out.push(b);
-  return out;
-}
 function yawBetween(a, b) {
   const xy = llToXY(b[0], b[1], a);
   return normAngle(Math.atan2(xy[1], xy[0]));
@@ -875,14 +866,6 @@ function osmSegmentUrl(start, end, profile, alternatives = false) {
   const altParam = alternatives ? "&alternatives=true" : "&alternatives=false";
   return `https://router.project-osrm.org/route/v1/${profile}/${coords}?overview=full&geometries=geojson&steps=false${altParam}`;
 }
-function connectRoadSegmentToTargets(start, roadPoints, end, interval) {
-  if (!roadPoints.length) return interpolateRoute([start, end], interval);
-  const segment = [];
-  appendRoutePoints(segment, interpolateRoute([start, roadPoints[0]], interval));
-  appendRoutePoints(segment, interpolateRoute(roadPoints, interval));
-  appendRoutePoints(segment, interpolateRoute([roadPoints[roadPoints.length - 1], end], interval));
-  return segment;
-}
 function endpointBridgeExact(fromPoint, toPoint, interval, endpointMode, buildings, bufferM, label, warnings, unsafeFallback = true) {
   if (!toPoint) return [fromPoint];
   const d = distanceLatLng(fromPoint, toPoint);
@@ -1113,9 +1096,6 @@ function onManualObstacleMapClick(latlng) {
   drawManualObstacles();
   updateManualObstacleStatus();
   setStatus(`Zone draft: ${manualObstacleDraft.length} point(s). Press Finish drawing when done.`, "info");
-}
-function manualObstaclesForBbox(bbox) {
-  return manualObstacles.filter(o => bboxOverlap(o.bbox || routeBBox(o.ring), bbox));
 }
 function manualHardObstaclesForBbox(bbox) {
   return semanticZonesForBbox(bbox).filter(o => ["building", "water"].includes(o.kind));
@@ -2890,29 +2870,6 @@ function setMode(mode) {
   }
   updateLegend();
 }
-function connectRobotGps() {
-  const fallback = initCenter();
-  function updateRobot(gps) {
-    const lat = Number(gps?.lat);
-    const lon = Number(gps?.lon);
-    const pos = Number.isFinite(lat) && Number.isFinite(lon) ? [lat, lon] : fallback;
-    if (!robotMarker) {
-      robotMarker = L.marker(pos, {icon: L.divIcon({className:"", html:'<div class="robot-marker"></div>', iconSize:[20,20], iconAnchor:[10,10]}), zIndexOffset:1000}).addTo(map);
-      robotMarker.bindTooltip("Robot GPS", {direction:"top"});
-    } else robotMarker.setLatLng(pos);
-    robotMarker.setOpacity(Number.isFinite(lat) && Number.isFinite(lon) ? 1 : .55);
-  }
-  try {
-    const proto = location.protocol === "https:" ? "wss:" : "ws:";
-    const ws = new WebSocket(`${proto}//${location.host}/ws/gps`);
-    ws.onmessage = ev => { try { updateRobot(JSON.parse(ev.data)); } catch (e) {} };
-    ws.onerror = () => { try { ws.close(); } catch (e) {} };
-    ws.onclose = () => setTimeout(() => fetch("/api/gps").then(r=>r.json()).then(updateRobot).catch(()=>updateRobot(null)), 800);
-  } catch (e) {
-    fetch("/api/gps").then(r=>r.json()).then(updateRobot).catch(()=>updateRobot(null));
-  }
-}
-
 function setFieldVisible(inputId, visible) {
   const input = $(inputId);
   if (!input) return;
@@ -3248,7 +3205,6 @@ function init() {
   syncFurrowControls();
   updateLiveStats();
   updateDownloads();
-  if (params.get("robot_gps") === "1") connectRobotGps();
   setInitialReadyState();
   if (params.get("mode") === "coverage") {
     setMode("coverage");

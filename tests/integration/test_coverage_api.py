@@ -2,6 +2,8 @@
 
 import http.client
 import json
+import socket
+import time
 import subprocess
 import sys
 import tempfile
@@ -89,6 +91,51 @@ class CoverageAPI(unittest.TestCase):
         status, _ = self.request("POST", "/api/unknown", "{}")
         self.assertEqual(status, 404)
 
+    def test_documented_module_starts_with_default_dem(self):
+        with socket.socket() as candidate:
+            candidate.bind(("127.0.0.1", 0))
+            port = candidate.getsockname()[1]
+        process = subprocess.Popen(
+            [sys.executable, "-m", "geozigzag", "--port", str(port), "--no-auto-port"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            deadline = time.monotonic() + 10
+            while True:
+                if process.poll() is not None:
+                    self.fail(process.stderr.read())
+                try:
+                    connection = http.client.HTTPConnection(
+                        "127.0.0.1", port, timeout=1
+                    )
+                    connection.request("GET", "/api/dem/status")
+                    response = connection.getresponse()
+                    payload = json.loads(response.read())
+                    self.assertEqual(response.status, 200)
+                    self.assertTrue(payload["available"])
+                    self.assertEqual(
+                        payload["source"]["type"], "mapzen_terrarium_aws_open_data"
+                    )
+                    break
+                except OSError:
+                    if time.monotonic() >= deadline:
+                        self.fail(
+                            "Documented server command did not start within 10 seconds."
+                        )
+                    time.sleep(0.05)
+                finally:
+                    connection.close()
+        finally:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+            process.stderr.close()
+
     def test_static_entrypoints_remain_available(self):
         for path in [
             "/",
@@ -96,6 +143,7 @@ class CoverageAPI(unittest.TestCase):
             "/web/static/studio.js",
             "/web/static/robot-coverage.js",
             "/web/static/studio.css",
+            "/configs/robot_coverage_demo.json",
         ]:
             status, data = self.request("GET", path)
             self.assertEqual(status, 200, path)

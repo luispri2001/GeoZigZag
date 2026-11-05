@@ -1,51 +1,25 @@
+# Python environments and tools
 .venv/
+venv/
 __pycache__/
 *.py[cod]
-*.log
+*.egg-info/
 .pytest_cache/
 .mypy_cache/
+.ruff_cache/
+*.log
 
-# Local/generated outputs
+# Generated routes
 outputs/**
 !outputs/.gitkeep
 
-# LaTeX build products (the source manuscript remains tracked)
-paper/build/
-paper/*.aux
-
-# Browser/test screenshots and temporary visual artifacts
-debug_screenshots/
-test_screenshots/
-tmp_screenshots/
-playwright-report/
-
-# Downloaded map/building tiles and local browser-side caches
-web/osm_buildings_cache/
+# Downloaded geospatial caches
 web/osm_semantic_cache/
-web/**/tile_*.json
 data/dem_cache/
 data/catastro_cache/
-*.mbtiles
-*.tiles
 
-# External reference repositories and local environments
-external/
-georoute-planner/
-venv/
-node_modules/
-
-# Local ROS/colcon products (not part of the GeoZigzag implementation)
-/build/
-/install/
-/log/
-
-# Generated remnants from local semantic router experiments. Source files are
-# intentionally not ignored if this directory is populated again.
-/semantic_waypoint_router/.pytest_cache/
-/semantic_waypoint_router/.ruff_cache/
-/semantic_waypoint_router/**/__pycache__/
-/semantic_waypoint_router/src/*.egg-info/
-
-# OS/editor noise
+# Editor and OS files
 .DS_Store
 Thumbs.db
+.vscode/
+.idea/

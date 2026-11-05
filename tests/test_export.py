@@ -7,21 +7,34 @@ from pathlib import Path
 import yaml
 
 from geozigzag.export import EXPORT_FIELDS, export_route_bundle
-from geozigzag.geometry import points_to_waypoints
 
 
 class ExportTests(unittest.TestCase):
     def test_bundle_schema_is_consistent(self) -> None:
-        route = points_to_waypoints([(42.0, -5.0), (42.0001, -4.9999)])
+        route = [
+            {"latitude": 42.0, "longitude": -5.0, "yaw": 0.5},
+            {"latitude": 42.0001, "longitude": -4.9999, "yaw": 0.5},
+        ]
         with tempfile.TemporaryDirectory() as temporary:
             files = export_route_bundle(route, temporary)
-            self.assertEqual({path.name for path in files}, {"waypoints.csv", "waypoints.yaml", "route.geojson"})
-            with Path(temporary, "waypoints.csv").open(newline="", encoding="utf-8") as handle:
+            self.assertEqual(
+                {path.name for path in files},
+                {"waypoints.csv", "waypoints.yaml", "route.geojson"},
+            )
+            with Path(temporary, "waypoints.csv").open(
+                newline="", encoding="utf-8"
+            ) as handle:
                 csv_rows = list(csv.DictReader(handle))
-            yaml_data = yaml.safe_load(Path(temporary, "waypoints.yaml").read_text(encoding="utf-8"))
-            geojson = json.loads(Path(temporary, "route.geojson").read_text(encoding="utf-8"))
+            yaml_data = yaml.safe_load(
+                Path(temporary, "waypoints.yaml").read_text(encoding="utf-8")
+            )
+            geojson = json.loads(
+                Path(temporary, "route.geojson").read_text(encoding="utf-8")
+            )
             self.assertEqual(tuple(csv_rows[0]), EXPORT_FIELDS)
-            self.assertEqual(set(yaml_data["waypoints"][0]["orientation"]), {"qx", "qy", "qz", "qw"})
+            self.assertEqual(
+                set(yaml_data["waypoints"][0]["orientation"]), {"qx", "qy", "qz", "qw"}
+            )
             self.assertEqual(geojson["features"][0]["geometry"]["type"], "LineString")
 
 

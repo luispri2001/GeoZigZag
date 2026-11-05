@@ -1,20 +1,11 @@
-import importlib.util
 import inspect
 import json
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 
-SPEC = importlib.util.spec_from_file_location(
-    "osm_semantic_preload_impl",
-    Path("scripts/osm_buildings_preload.py"),
-)
-assert SPEC and SPEC.loader
-osm = importlib.util.module_from_spec(SPEC)
-sys.modules[SPEC.name] = osm
-SPEC.loader.exec_module(osm)
+from geozigzag import web_server as osm
 
 
 class OsmSemanticPreloadTests(unittest.TestCase):
@@ -200,9 +191,7 @@ class OsmSemanticPreloadTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             model = osm.build_elevation_model(dem_cache=temporary)
 
-        self.assertEqual(
-            model.provenance()["type"], "mapzen_terrarium_aws_open_data"
-        )
+        self.assertEqual(model.provenance()["type"], "mapzen_terrarium_aws_open_data")
 
     def test_dem_api_provenance_does_not_expose_local_paths(self) -> None:
         class Elevation:

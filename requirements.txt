@@ -1,9 +1,4 @@
-# The interactive planner core remains dependency-light. These packages power
-# the YAML experiment configuration and publication figure generation.
-matplotlib>=3.7,<4
-PyYAML>=6,<7
+# Runtime dependencies for the web application.
 Pillow>=9,<13
 pyproj>=3.4,<4
-
-# Robust polygon inset and continuous segment containment for headland planning
 shapely>=2,<3
