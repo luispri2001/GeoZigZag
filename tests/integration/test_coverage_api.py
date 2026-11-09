@@ -75,6 +75,7 @@ class CoverageAPI(unittest.TestCase):
                 "waypoints.csv",
                 "waypoints.yaml",
                 "route.geojson",
+                "mission.waypoints",
             ]:
                 self.assertTrue((out / name).is_file())
 

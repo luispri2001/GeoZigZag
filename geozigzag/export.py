@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 from pathlib import Path
 from typing import Sequence
 
@@ -86,6 +87,52 @@ def export_geojson(waypoints: Sequence[dict[str, float]], path: str | Path) -> P
     return output
 
 
+def export_ardupilot_wpl(
+    waypoints: Sequence[dict[str, float]], path: str | Path
+) -> Path:
+    """Export position-only waypoints as a Mission Planner QGC WPL 110 file."""
+    output = Path(path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    positions = []
+    for waypoint in waypoints:
+        latitude = waypoint.get("latitude")
+        longitude = waypoint.get("longitude")
+        if (
+            isinstance(latitude, bool)
+            or isinstance(longitude, bool)
+            or not isinstance(latitude, (int, float))
+            or not isinstance(longitude, (int, float))
+            or not math.isfinite(latitude)
+            or not math.isfinite(longitude)
+            or not -90 <= latitude <= 90
+            or not -180 <= longitude <= 180
+        ):
+            raise ValueError("ArduPilot export requires valid WGS84 coordinates.")
+        if positions and (
+            abs(latitude - positions[-1][0]) <= 1e-12
+            and abs(longitude - positions[-1][1]) <= 1e-12
+        ):
+            # WPL NAV_WAYPOINT has no way to express a stationary yaw change.
+            continue
+        positions.append((latitude, longitude))
+    if len(positions) < 2:
+        raise ValueError(
+            "ArduPilot export requires at least two distinct positions."
+        )
+
+    home_latitude, home_longitude = positions[0]
+    lines = [
+        "QGC WPL 110",
+        f"0\t1\t0\t16\t0\t0\t0\t0\t{home_latitude:.12f}\t{home_longitude:.12f}\t0\t1",
+    ]
+    lines.extend(
+        f"{sequence}\t0\t3\t16\t0\t0\t0\t0\t{latitude:.12f}\t{longitude:.12f}\t0\t1"
+        for sequence, (latitude, longitude) in enumerate(positions, start=1)
+    )
+    output.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return output
+
+
 def export_route_bundle(waypoints: Sequence[dict[str, float]], directory: str | Path) -> list[Path]:
     output = Path(directory)
     output.mkdir(parents=True, exist_ok=True)
@@ -93,4 +140,5 @@ def export_route_bundle(waypoints: Sequence[dict[str, float]], directory: str | 
         export_csv(waypoints, output / "waypoints.csv"),
         export_ros_yaml(waypoints, output / "waypoints.yaml"),
         export_geojson(waypoints, output / "route.geojson"),
+        export_ardupilot_wpl(waypoints, output / "mission.waypoints"),
     ]

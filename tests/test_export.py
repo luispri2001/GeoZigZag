@@ -19,7 +19,12 @@ class ExportTests(unittest.TestCase):
             files = export_route_bundle(route, temporary)
             self.assertEqual(
                 {path.name for path in files},
-                {"waypoints.csv", "waypoints.yaml", "route.geojson"},
+                {
+                    "waypoints.csv",
+                    "waypoints.yaml",
+                    "route.geojson",
+                    "mission.waypoints",
+                },
             )
             with Path(temporary, "waypoints.csv").open(
                 newline="", encoding="utf-8"

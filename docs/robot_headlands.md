@@ -87,6 +87,12 @@ them to a follower that ignores orientation/actions. The exports do not
 provide timing, velocities, accelerations, ROS frame transforms or a robot
 controller. YAML uses the same nested `orientation` schema in web and CLI.
 
+The Mission Planner/ArduPilot `.waypoints` export contains only `NAV_WAYPOINT`
+positions at 0 m relative altitude. Consecutive duplicate positions are
+removed, so stationary yaw changes are not represented. ArduPilot's vehicle
+controller determines how it follows the route and executes turns; the WPL
+file does not preserve this planner's robot-specific turn geometry.
+
 `plan.json` contains row paths, headland paths, maneuver index ranges and Dubins
 words, robot parameters, local origin, and area/working area, row count,
 waypoint count, average row length, spacings, direction and start corner.

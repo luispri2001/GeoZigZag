@@ -14,7 +14,7 @@ Browser: field / robot / mission targets / semantic zones
                        +-- GET /api/catastro/buildings: Spanish Cadastre
                        +-- GET /api/dem/status and /api/dem/grid: elevation
     |
-    +-- Preview and CSV / YAML / Plan JSON download
+    +-- Preview and CSV / YAML / ArduPilot WPL / Plan JSON download
 ```
 
 `python -m geozigzag` starts `web_server.py`. The root HTML redirects to the
@@ -40,6 +40,11 @@ and checks every connection. See [headland planning](robot_headlands.md) for
 reference points, continuous-arc checks and the stationary rotation contract.
 Exports prepare routes; they do not implement tracking, localization, TF,
 robot execution or dynamic feasibility.
+
+ArduPilot WPL is a coordinate-only mission export. It does not carry the
+coverage planner's yaw or stationary rotation actions. See
+[obstacle evaluation](obstacle_evaluation.md) for the current scope of
+obstacle-aware planning and optimality claims.
 
 ## Mission semantics
 

@@ -103,15 +103,22 @@ use `web/osm_semantic_cache/`. Caches and route outputs are not committed.
 
 ## Exports
 
-Web downloads: CSV, YAML and Plan JSON. Coverage CLI also exports GeoJSON.
+Web downloads: CSV, YAML, Mission Planner/ArduPilot `.waypoints` and Plan JSON.
+Coverage CLI also exports GeoJSON and `.waypoints`.
 Coordinates are WGS84 latitude/longitude; yaw is in radians counterclockwise
 from east. Quaternions use the same planar ENU orientation.
 
 Coverage exports retain `action` (`drive` or `rotate`) and `phase` (`row` or
 `headland`). A stationary rotation intentionally repeats a position with a new
 yaw. Consumers must stop and execute that action rather than deduplicating it.
-Plan JSON includes robot settings, route geometry and metrics. No ROS/Gazebo
-controller, timing, dynamic model or frame conversion is provided.
+The ArduPilot WPL export is a position-only mission at 0 m relative altitude:
+it removes consecutive duplicate positions and does not encode yaw or stationary
+`rotate` actions. ArduPilot's vehicle controller therefore determines how turns
+are driven. Plan JSON includes robot settings, route geometry and metrics. No
+ROS/Gazebo controller, timing, dynamic model or frame conversion is provided.
+
+See [obstacle evaluation](docs/obstacle_evaluation.md) for the current planner
+scope and why obstacle count alone cannot define an optimality threshold.
 
 ## Tests
 

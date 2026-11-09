@@ -241,7 +241,9 @@ function setRunState(type, title, detail = "") {
 function setDownloadsEnabled(enabled) {
   const row = $("downloadsRow");
   if (row) row.classList.toggle("stale", !enabled);
-  for (const id of ["downloadCsv", "downloadYaml", "downloadPlan"]) {
+  for (const id of [
+    "downloadCsv", "downloadYaml", "downloadArduPilot", "downloadPlan"
+  ]) {
     const a = $(id);
     if (!a) continue;
     a.classList.toggle("disabled", !enabled);
@@ -2756,6 +2758,26 @@ function updateDownloads() {
     if (hasActions) text += `    action: ${w.action}\n    phase: ${w.phase}\n`;
     return text;
   }).join("");
+  const missionPoints = [];
+  for (const waypoint of rows) {
+    const previous = missionPoints[missionPoints.length - 1];
+    if (previous &&
+      Math.abs(waypoint.latitude - previous.latitude) <= 1e-12 &&
+      Math.abs(waypoint.longitude - previous.longitude) <= 1e-12) continue;
+    missionPoints.push(waypoint);
+  }
+  const wplItem = (sequence, current, frame, waypoint) => [
+    sequence, current, frame, 16, 0, 0, 0, 0,
+    waypoint.latitude.toFixed(12), waypoint.longitude.toFixed(12), 0, 1
+  ].join("\t");
+  const home = missionPoints[0];
+  const ardupilot = missionPoints.length > 1
+    ? [
+      "QGC WPL 110",
+      wplItem(0, 1, 0, home),
+      ...missionPoints.map((waypoint, index) => wplItem(index + 1, 0, 3, waypoint))
+    ].join("\n") + "\n"
+    : "";
   const set = (id, text, name, type) => {
     const blob = new Blob([text], {type});
     const a = $(id);
@@ -2766,6 +2788,7 @@ function updateDownloads() {
   };
   set("downloadCsv", csv, `${appMode}_${fieldMode}_waypoints.csv`, "text/csv");
   set("downloadYaml", yaml, `${appMode}_${fieldMode}_waypoints.yaml`, "text/yaml");
+  set("downloadArduPilot", ardupilot, `${appMode}_${fieldMode}_mission.waypoints`, "text/plain");
   set("downloadPlan", JSON.stringify(currentPlan || {}, null, 2), `${appMode}_plan.json`, "application/json");
   setDownloadsEnabled(currentWaypoints.length > 0 && !routeDirty);
 }

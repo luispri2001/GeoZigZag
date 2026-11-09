@@ -378,8 +378,10 @@
             <div id="downloadsRow" class="downloads stale">
               <a id="downloadCsv" class="download disabled" href="#">CSV</a>
               <a id="downloadYaml" class="download disabled" href="#">YAML</a>
+              <a id="downloadArduPilot" class="download disabled" href="#" title="Position-only mission. Robot headings and stationary rotations are not encoded.">ArduPilot .waypoints</a>
               <a id="downloadPlan" class="download disabled" href="#">Plan JSON</a>
             </div>
+            <p class="compact-note">ArduPilot exports waypoint coordinates at 0 m relative altitude. The vehicle's own controller handles turns; GeoZigZag headings and stationary rotate actions are not included.</p>
           </div>
           <div class="map-status-card">
             <div id="runState" class="run-state idle"><div><strong>No route generated</strong><span>Set the field or mission and press Generate.</span></div></div>
