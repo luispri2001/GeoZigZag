@@ -11,9 +11,14 @@ class WebContractTests(unittest.TestCase):
                       + Path("web/static/studio.css").read_text(encoding="utf-8"))
 
     def test_edits_mark_route_pending_without_auto_generation(self) -> None:
-        schedule = self.source.split("function scheduleGenerate", 1)[1].split("function finishGenerationState", 1)[0]
-        self.assertIn("markDirty(reason, false)", schedule)
-        self.assertNotIn("generate()", schedule)
+        pending = self.source.split("function markRoutePending", 1)[1].split("function finishGenerationState", 1)[0]
+        self.assertIn('setRunState("pending"', pending)
+        self.assertNotIn("generate()", pending)
+        self.assertNotIn("scheduleGenerate", self.source)
+        self.assertNotIn("markDirty", self.source)
+        self.assertNotIn("pendingGenerateTimer", self.source)
+        self.assertNotIn("route-stale", self.source)
+        self.assertNotIn("downloadsRow", self.source)
 
     def test_status_and_snap_feedback_are_visible(self) -> None:
         for text in ("Generated with warnings", "Route could not be generated", "worstSnap.toFixed(1)"):

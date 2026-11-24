@@ -13,7 +13,7 @@ function bindRobotControls() {
   for (const id of ["robotType", "robotClearance", "robotHeadland", "robotWheelbase", "robotSteering"]) {
     $(id).addEventListener("input", () => {
       updateRobotControls();
-      if (appMode === "coverage") scheduleGenerate("Robot or headland parameters changed.");
+      if (appMode === "coverage") markRoutePending("Robot or headland parameters changed.");
     });
   }
   $("loadCoverageDemo").addEventListener("click", async () => {
@@ -37,7 +37,7 @@ function bindRobotControls() {
       updateSpacingLabels();
       drawPolyDraft(true);
       map.fitBounds(L.latLngBounds(polyVertices).pad(.2));
-      markDirty("Demo loaded. Select a robot and generate its route.");
+      markRoutePending("Demo loaded. Select a robot and generate its route.");
     } catch (error) { failGenerationState(error.message); }
   });
   updateRobotControls();

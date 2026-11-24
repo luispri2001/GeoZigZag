@@ -43,7 +43,6 @@ let furrowBearingManual = false;
 let rectEditSnapshot = null;
 let generationToken = 0;
 let routeDirty = true;
-let pendingGenerateTimer = null;
 let loadingStartedAt = 0;
 let loadingTimer = null;
 let loadingBaseDetail = "";
@@ -263,13 +262,12 @@ function setGenerateBusy(isBusy) {
   cancel.classList.toggle("hidden", !isBusy);
   if (restoreFocus) btn.focus();
 }
-function markDirty(reason = "Pending changes.", auto = false) {
+function markRoutePending(reason = "Pending changes.") {
   generationToken += 1;
   setGenerateBusy(false);
   setLoadingVisible(false);
   currentPlan = null;
   routeDirty = true;
-  document.body.classList.add("route-stale");
   setDownloadsEnabled(false);
   setRunState("pending", "Pending changes", "Generate a route to apply these changes.");
   setStatus(reason, "pending");
@@ -279,7 +277,6 @@ function markDirty(reason = "Pending changes.", auto = false) {
 }
 function setInitialReadyState() {
   routeDirty = true;
-  document.body.classList.add("route-stale");
   setDownloadsEnabled(false);
   setRunState("idle", "No route generated", "Set the field or mission and press Generate.");
   setStatus("Ready.");
@@ -287,24 +284,17 @@ function setInitialReadyState() {
   clearRouteDetails();
   updateLegend();
 }
-function scheduleGenerate(reason = "Change detected.", delay = 650) {
-  if (pendingGenerateTimer) clearTimeout(pendingGenerateTimer);
-  pendingGenerateTimer = null;
-  markDirty(reason, false);
-}
 function finishGenerationState(statusClass) {
   routeDirty = false;
-  document.body.classList.remove("route-stale");
   setDownloadsEnabled(currentWaypoints.length > 0);
   const elapsed = lastProcessingMs || (generationStartedAtMs ? performance.now() - generationStartedAtMs : 0);
   const timeText = formatProcessingTime(elapsed);
   const details = `Last generated at ${new Date().toLocaleTimeString()}`;
   setRunState(statusClass, statusClass === "warn" ? "Generated with warnings" : "Generated", details);
-  setTimingState(statusClass === "err" ? "err" : "ok", `Processing time: ${timeText}`);
+  setTimingState("ok", `Processing time: ${timeText}`);
 }
 function failGenerationState(message) {
   routeDirty = true;
-  document.body.classList.add("route-stale");
   setDownloadsEnabled(false);
   const elapsed = generationStartedAtMs ? performance.now() - generationStartedAtMs : lastProcessingMs;
   const suffix = elapsed ? ` · after ${formatProcessingTime(elapsed)}` : "";
@@ -437,7 +427,7 @@ function setFurrowBearing(value, manual = true, reason = "Furrow rotation change
   furrowBearingManual = manual;
   setAngleControls("furrowBearing", "furrowBearingNumber", null, value);
   syncFurrowControls();
-  if (appMode === "coverage") scheduleGenerate(reason);
+  if (appMode === "coverage") markRoutePending(reason);
 }
 
 function setPressed(id, pressed) {
@@ -559,7 +549,7 @@ function applyRectFromSliders() {
   updateRectFromInputs(false);
   updateLiveStats();
   syncFurrowControls();
-  if (appMode === "coverage") scheduleGenerate("Rectangle adjusted.", 500);
+  if (appMode === "coverage") markRoutePending("Rectangle adjusted.");
 }
 function markerIcon(key) {
   const isStart = key === startCorner;
@@ -580,7 +570,7 @@ function createRectMarkers() {
       updateRectFromInputs(false);
       updateLiveStats();
     });
-    rectMarkers[k].on("dragend", () => { syncRectSlidersFromInputs(true); scheduleGenerate("Rectangle corner moved."); });
+    rectMarkers[k].on("dragend", () => { syncRectSlidersFromInputs(true); markRoutePending("Rectangle corner moved."); });
   }
 }
 function updateRectFromInputs(resetSliders = false) {
@@ -625,7 +615,7 @@ function applyRectMetrics(metrics, reason = "Rectangle alignment changed.") {
   updateRectFromInputs(true);
   updateLiveStats();
   syncFurrowControls();
-  if (appMode === "coverage") scheduleGenerate(reason, 500);
+  if (appMode === "coverage") markRoutePending(reason);
 }
 function squareCurrentRectangle(reason = "Rectangle squared.") {
   let m;
@@ -646,13 +636,13 @@ function applyRectToolChanges() {
   rectEditSnapshot = null;
   syncRectSlidersFromInputs(true);
   setStatus("Rectangle settings applied.", "ok");
-  if (appMode === "coverage") scheduleGenerate("Rectangle settings applied.", 500);
+  if (appMode === "coverage") markRoutePending("Rectangle settings applied.");
 }
 function cancelRectToolChanges() {
   if (rectEditSnapshot) restoreRectSnapshot(rectEditSnapshot);
   rectEditSnapshot = null;
   setStatus("Rectangle settings cancelled.", "warn");
-  if (appMode === "coverage") scheduleGenerate("Rectangle settings cancelled.", 500);
+  if (appMode === "coverage") markRoutePending("Rectangle settings cancelled.");
 }
 function setStartCorner(corner) {
   startCorner = corner;
@@ -661,7 +651,7 @@ function setStartCorner(corner) {
     $("card-" + k).classList.toggle("active-corner", k === corner);
   });
   updateRectFromInputs(false);
-  if (appMode === "coverage") scheduleGenerate(`Start corner changed to ${corner.toUpperCase()}.`);
+  if (appMode === "coverage") markRoutePending(`Start corner changed to ${corner.toUpperCase()}.`);
 }
 function boundsFromLatLngs(a, b) {
   return {n: Math.max(a.lat, b.lat), s: Math.min(a.lat, b.lat), e: Math.max(a.lng, b.lng), w: Math.min(a.lng, b.lng)};
@@ -723,7 +713,7 @@ function onRectDrawEnd(e) {
     return;
   }
   applyRectBounds(bounds);
-  scheduleGenerate("Rectangle drawn.");
+  markRoutePending("Rectangle drawn.");
 }
 
 function switchFieldMode(mode) {
@@ -751,8 +741,8 @@ function switchFieldMode(mode) {
   syncFurrowControls();
   updateLiveStats();
   if (appMode === "coverage") {
-    if (mode === "rect" || polyVertices.length >= 3) scheduleGenerate("Field mode changed.");
-    else markDirty("Polygon mode active: add at least 3 vertices.", false);
+    if (mode === "rect" || polyVertices.length >= 3) markRoutePending("Field mode changed.");
+    else markRoutePending("Polygon mode active: add at least 3 vertices.");
   }
 }
 function onPolyClick(e) {
@@ -760,8 +750,8 @@ function onPolyClick(e) {
   polyVertices.push([e.latlng.lat, e.latlng.lng]);
   drawPolyDraft();
   updateLiveStats();
-  if (polyVertices.length >= 3) scheduleGenerate("Polygon vertex added.", 500);
-  else markDirty(`Polygon has ${polyVertices.length} vertex/vertices: ${3 - polyVertices.length} more needed.`, false);
+  if (polyVertices.length >= 3) markRoutePending("Polygon vertex added.");
+  else markRoutePending(`Polygon has ${polyVertices.length} vertex/vertices: ${3 - polyVertices.length} more needed.`);
 }
 function onPolyDblClick(e) {
   if (appMode !== "coverage" || fieldMode !== "poly") return;
@@ -781,8 +771,8 @@ function drawPolyDraft(closed = false) {
       polyVertices[i] = [ev.latlng.lat, ev.latlng.lng];
       drawPolyDraft(closed);
       updateLiveStats();
-      if (polyVertices.length >= 3) scheduleGenerate("Polygon vertex moved.", 500);
-      else markDirty("Polygon changed: more vertices are needed.", false);
+      if (polyVertices.length >= 3) markRoutePending("Polygon vertex moved.");
+      else markRoutePending("Polygon changed: more vertices are needed.");
     });
   });
   if (polyVertices.length >= 2) {
@@ -799,7 +789,7 @@ function clearPoly() {
   polyVertices = [];
   drawPolyDraft(false);
   updateLiveStats();
-  markDirty("Polygon cleared.", false);
+  markRoutePending("Polygon cleared.");
 }
 function closePoly() {
   if (polyVertices.length < 3) {
@@ -808,7 +798,7 @@ function closePoly() {
   }
   drawPolyDraft(true);
   updateLiveStats();
-  scheduleGenerate(`Polygon closed with ${polyVertices.length} vertices.`);
+  markRoutePending(`Polygon closed with ${polyVertices.length} vertices.`);
 }
 
 function longestEdgeBearing(poly, origin) {
@@ -1044,7 +1034,7 @@ function finishManualObstacleDraw() {
   drawManualObstacles();
   updateManualObstacleStatus();
   setStatus(`${SEMANTIC_ZONE_STYLE[kind].label} zone ${editing ? "updated" : "saved"}. Press Generate to use it in the route.`, "ok");
-  if (appMode === "mission") scheduleGenerate(`Semantic zone ${editing ? "updated" : "added"}.`, 500);
+  if (appMode === "mission") markRoutePending(`Semantic zone ${editing ? "updated" : "added"}.`);
 }
 function cancelManualObstacleDraw() {
   const editing = manualObstacleEditSnapshot;
@@ -1068,7 +1058,7 @@ function clearManualObstacles() {
   drawManualObstacles();
   updateManualObstacleStatus();
   setStatus("Semantic zones cleared.", "warn");
-  if (appMode === "mission") scheduleGenerate("Semantic zones cleared.", 500);
+  if (appMode === "mission") markRoutePending("Semantic zones cleared.");
 }
 function deleteManualObstacle(index) {
   if (index < 0 || index >= manualObstacles.length) return;
@@ -1077,7 +1067,7 @@ function deleteManualObstacle(index) {
   drawManualObstacles();
   updateManualObstacleStatus();
   setStatus("Semantic zone deleted.", "ok");
-  if (appMode === "mission") scheduleGenerate("Semantic zone deleted.", 500);
+  if (appMode === "mission") markRoutePending("Semantic zone deleted.");
 }
 function editManualObstacle(index) {
   if (index < 0 || index >= manualObstacles.length) return;
@@ -1709,7 +1699,7 @@ function clearPublicSemanticZones() {
   if (appMode === "mission") renderMissionMarkers();
   updatePublicSemanticStatus(0);
   setStatus("Public semantic data cleared.", "warn");
-  if (appMode === "mission") scheduleGenerate("Public semantic data cleared.", 500);
+  if (appMode === "mission") markRoutePending("Public semantic data cleared.");
 }
 async function loadVisiblePublicSemanticZones() {
   const bbox = visibleSemanticBbox();
@@ -1727,7 +1717,7 @@ async function loadVisiblePublicSemanticZones() {
       `Public data loaded: ${counts.building} buildings (${sources.catastro} Catastro, ${sources.osm} OSM zones), ${counts.water} water, ${counts.forest} forest, ${counts.scrub} scrub; ${waypointCount} resource waypoints, ${autoWaypointCount} added automatically.`,
       "ok"
     );
-    if (appMode === "mission") scheduleGenerate("Public semantic data loaded.", 500);
+    if (appMode === "mission") markRoutePending("Public semantic data loaded.");
   } catch (error) {
     setStatus(error.message || String(error), "err");
   } finally {
@@ -2603,13 +2593,13 @@ function addMissionStop(id) {
   missionStops.push(id);
   renderPoiPicker();
   renderMissionList();
-  if (appMode === "mission") scheduleGenerate("Waypoint added.");
+  if (appMode === "mission") markRoutePending("Waypoint added.");
 }
 function removeMissionStop(index) {
   missionStops.splice(index, 1);
   renderPoiPicker();
   renderMissionList();
-  if (appMode === "mission") scheduleGenerate("Waypoint removed.");
+  if (appMode === "mission") markRoutePending("Waypoint removed.");
 }
 function moveMissionStop(index, delta) {
   const next = index + delta;
@@ -2617,13 +2607,13 @@ function moveMissionStop(index, delta) {
   [missionStops[index], missionStops[next]] = [missionStops[next], missionStops[index]];
   renderPoiPicker();
   renderMissionList();
-  if (appMode === "mission") scheduleGenerate("Route order changed.");
+  if (appMode === "mission") markRoutePending("Route order changed.");
 }
 function reverseMissionStops() {
   missionStops.reverse();
   renderPoiPicker();
   renderMissionList();
-  if (appMode === "mission") scheduleGenerate("Route order changed.");
+  if (appMode === "mission") markRoutePending("Route order changed.");
 }
 function clearMissionStops() {
   missionStops = [];
@@ -2695,7 +2685,7 @@ function renderEmptyMission(message) {
   currentBounds = L.latLngBounds(poiGeojson.features.map(f => [f.geometry.coordinates[1], f.geometry.coordinates[0]]));
   updateStats(0, 0, "Mode", "-");
   if (/cleared|add at least/i.test(message)) {
-    markDirty(message, false);
+    markRoutePending(message);
   } else {
     failGenerationState(message);
   }
@@ -2802,10 +2792,6 @@ function updateDownloads() {
   setDownloadsEnabled(currentWaypoints.length > 0 && !routeDirty);
 }
 async function generate() {
-  if (pendingGenerateTimer) {
-    clearTimeout(pendingGenerateTimer);
-    pendingGenerateTimer = null;
-  }
   const token = ++generationToken;
   setGenerateBusy(true);
   generationStartedAtMs = performance.now();
@@ -2862,7 +2848,7 @@ function updateLiveStats() {
 function setMode(mode) {
   if (mode !== "coverage" && isDrawingRect) cancelRectDraw(false);
   appMode = mode;
-  markDirty("Planning mode selected.", false);
+  markRoutePending("Planning mode selected.");
   setPressed("coverageTab", mode === "coverage");
   setPressed("missionTab", mode === "mission");
   $("coveragePanel").classList.toggle("hidden", mode !== "coverage");
@@ -2896,7 +2882,7 @@ function setMode(mode) {
       updateDownloads();
       fitMap();
       setTimeout(fitMap, 160);
-      markDirty("Mission route ready.", false);
+      markRoutePending("Mission route ready.");
     } else {
       renderEmptyMission("Add at least two waypoints.");
     }
@@ -3069,7 +3055,7 @@ function applyOsmSafetyPreset(triggerGenerate = true) {
     setValue("osmValidationMode", "strict");
   }
   updateVisibleMissionSettings();
-  if (triggerGenerate && appMode === "mission") scheduleGenerate(`OSM mode changed to ${preset}.`, 600);
+  if (triggerGenerate && appMode === "mission") markRoutePending(`OSM mode changed to ${preset}.`);
 }
 function updateSpacingLabels() {
   const row = safeNum("rowSpacing", 0.75);
@@ -3087,7 +3073,7 @@ function bindEvents() {
     generationToken += 1;
     setGenerateBusy(false);
     setLoadingVisible(false);
-    markDirty("Preview cancelled.", false);
+    markRoutePending("Preview cancelled.");
   });
   $("fitBtn").addEventListener("click", fitMap);
   $("fieldRectTab").addEventListener("click", () => switchFieldMode("rect"));
@@ -3116,8 +3102,8 @@ function bindEvents() {
   $("closePolyBtn").addEventListener("click", closePoly);
   ["nw","ne","sw","se"].forEach(k => {
     $("sc-" + k).addEventListener("click", () => setStartCorner(k));
-    $(k + "_lat").addEventListener("change", () => { updateRectFromInputs(true); updateLiveStats(); if (appMode === "coverage") scheduleGenerate(`${k.toUpperCase()} coordinate changed.`); });
-    $(k + "_lon").addEventListener("change", () => { updateRectFromInputs(true); updateLiveStats(); if (appMode === "coverage") scheduleGenerate(`${k.toUpperCase()} coordinate changed.`); });
+    $(k + "_lat").addEventListener("change", () => { updateRectFromInputs(true); updateLiveStats(); if (appMode === "coverage") markRoutePending(`${k.toUpperCase()} coordinate changed.`); });
+    $(k + "_lon").addEventListener("change", () => { updateRectFromInputs(true); updateLiveStats(); if (appMode === "coverage") markRoutePending(`${k.toUpperCase()} coordinate changed.`); });
   });
   ["rectCenterNS", "rectCenterEW", "rectHeight", "rectWidth"].forEach(id => {
     $(id).addEventListener("input", () => {
@@ -3129,7 +3115,7 @@ function bindEvents() {
   ["rowSpacing", "pointSpacing"].forEach(id => {
     $(id).addEventListener("input", () => {
       updateSpacingLabels();
-      if (appMode === "coverage") scheduleGenerate("Furrow spacing changed.");
+      if (appMode === "coverage") markRoutePending("Furrow spacing changed.");
     });
   });
   const updateFurrowAngle = value => setFurrowBearing(value, true, "Furrow rotation changed.");
@@ -3142,13 +3128,13 @@ function bindEvents() {
   $("furrowAlignRectBtn").addEventListener("click", () => {
     try { setFurrowBearing(rectMetricsFromCorners().bearing, true, "Furrows aligned to rectangle."); } catch (_) {}
   });
-  $("routeStrategy").addEventListener("change", () => { updateVisibleMissionSettings(); if (appMode === "mission") scheduleGenerate("Route strategy changed."); });
-  $("routeSpacing").addEventListener("change", () => { if (appMode === "mission") scheduleGenerate("Waypoint spacing changed."); });
-  $("osmProfile").addEventListener("change", () => { if (appMode === "mission") scheduleGenerate("OSM profile changed."); });
+  $("routeStrategy").addEventListener("change", () => { updateVisibleMissionSettings(); if (appMode === "mission") markRoutePending("Route strategy changed."); });
+  $("routeSpacing").addEventListener("change", () => { if (appMode === "mission") markRoutePending("Waypoint spacing changed."); });
+  $("osmProfile").addEventListener("change", () => { if (appMode === "mission") markRoutePending("OSM profile changed."); });
   if ($("osmSafetyPreset")) $("osmSafetyPreset").addEventListener("change", () => applyOsmSafetyPreset(true));
   for (const id of ["osmEndpointMode", "osmMaxSnap", "osmAvoidBuildings", "osmBuildingBuffer", "osmAlternatives", "osmAstarFallback", "osmUnsafeFallback", "osmValidationMode"]) {
     const el = $(id);
-    if (el) el.addEventListener("change", () => { updateVisibleMissionSettings(); if (appMode === "mission") scheduleGenerate("OSM safety setting changed."); });
+    if (el) el.addEventListener("change", () => { updateVisibleMissionSettings(); if (appMode === "mission") markRoutePending("OSM safety setting changed."); });
   }
   if ($("drawManualObstacleBtn")) $("drawManualObstacleBtn").addEventListener("click", startManualObstacleDraw);
   if ($("manualObstacleKind")) $("manualObstacleKind").addEventListener("change", () => {
@@ -3162,12 +3148,12 @@ function bindEvents() {
   for (const id of ["publicWaypointMinArea", "publicAutoWaypoints", "publicAutoWaypointLimit"]) {
     if ($(id)) $(id).addEventListener("change", () => {
       updatePublicSemanticStatus(rebuildPublicSemanticWaypoints());
-      if (appMode === "mission") scheduleGenerate("Automatic vegetation waypoint settings changed.", 500);
+      if (appMode === "mission") markRoutePending("Automatic vegetation waypoint settings changed.");
     });
   }
   for (const id of ["publicRouteBuffer", "semanticSafetyBuffer"]) {
     if ($(id)) $(id).addEventListener("change", () => {
-      if (appMode === "mission") scheduleGenerate("Public-data safety setting changed.", 500);
+      if (appMode === "mission") markRoutePending("Public-data safety setting changed.");
     });
   }
   if ($("checkTerrainBtn")) $("checkTerrainBtn").addEventListener("click", checkTerrainServer);
@@ -3177,7 +3163,7 @@ function bindEvents() {
       terrainCostLayer.clearLayers();
       updateTerrainUi();
       updateLegend();
-      if (appMode === "mission") scheduleGenerate("Terrain costmap setting changed.", 500);
+      if (appMode === "mission") markRoutePending("Terrain costmap setting changed.");
     });
   }
   if ($("manualObstacleList")) $("manualObstacleList").addEventListener("click", event => {
