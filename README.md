@@ -32,6 +32,18 @@ Runtime dependencies are Shapely (field geometry), Pillow (DEM tiles) and pyproj
 services. Uncached elevation, Catastro, OSM and optional OSRM requests require
 internet access; downloaded geospatial responses are cached locally.
 
+## Map navigation
+
+Use **Find a place** on the map to search by locality or postal code. Select
+a result to center the map, or enter decimal coordinates as `latitude, longitude`
+(for example, `42.93932, -6.31943`). **Fit map** returns to the planned field or
+mission. Coordinate entry does not make a geocoding request.
+
+Name lookup uses [GeoNames](https://www.geonames.org/) data through the
+[Open-Meteo Geocoding API](https://open-meteo.com/en/docs/geocoding-api) and
+requires internet access. The public API is available for
+[non-commercial use](https://open-meteo.com/en/terms).
+
 ## Field coverage
 
 Open [Coverage](http://localhost:8000/?mode=coverage), draw a rectangle or polygon,

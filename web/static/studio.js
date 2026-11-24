@@ -71,6 +71,9 @@ map.getPane("terrainSlopePane").style.zIndex = "350";
 const terrainSlopeRenderer = L.canvas({pane: "terrainSlopePane", padding: 0.2});
 map.attributionControl.setPosition("bottomleft");
 L.control.zoom({position: "topleft"}).addTo(map);
+new ResizeObserver(() => {
+  map.invalidateSize({animate: false, debounceMoveend: true});
+}).observe($("map"));
 const baseLayers = {
   gps: L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
     maxZoom: 25,
@@ -209,7 +212,7 @@ function updateLoadingDetail(detail) {
 async function loadingStep(detail) {
   loadingBaseDetail = detail;
   setLoadingVisible(true, detail);
-  setRunState("busy", "Generating route…", detail);
+  setRunState("busy", "Generating route…");
   setStatus(detail, "busy");
   await nextPaint();
 }
@@ -231,33 +234,34 @@ function setRunState(type, title, detail = "") {
     box.className = "run-state " + type;
     box.innerHTML = `<div><strong>${title}</strong><span>${detail}</span></div>`;
   }
-  const badge = $("mapStateBadge");
-  if (badge) {
-    const showOnMap = type !== "idle" && type !== "pending";
-    badge.className = "map-state-badge " + type + (showOnMap ? "" : " hidden");
-    badge.textContent = detail ? `${title}: ${detail}` : title;
-  }
 }
 function setDownloadsEnabled(enabled) {
-  const row = $("downloadsRow");
-  if (row) row.classList.toggle("stale", !enabled);
   for (const id of [
     "downloadCsv", "downloadYaml", "downloadArduPilot", "downloadPlan"
   ]) {
     const a = $(id);
     if (!a) continue;
-    a.classList.toggle("disabled", !enabled);
     a.setAttribute("aria-disabled", enabled ? "false" : "true");
-    if (!enabled) a.title = "The current route is not generated or is out of date.";
-    else a.title = "";
+    if (enabled && a.dataset.url) {
+      a.href = a.dataset.url;
+      a.removeAttribute("tabindex");
+    } else {
+      a.removeAttribute("href");
+      a.tabIndex = -1;
+    }
   }
 }
 function setGenerateBusy(isBusy) {
   const btn = $("generateBtn");
   if (!btn) return;
+  const cancel = $("cancelGenerateBtn");
+  const restoreFocus = !isBusy && document.activeElement === cancel;
   btn.disabled = isBusy;
   btn.classList.toggle("busy", isBusy);
   btn.textContent = isBusy ? "Generating…" : "Generate route";
+  $("fitBtn").classList.toggle("hidden", isBusy);
+  cancel.classList.toggle("hidden", !isBusy);
+  if (restoreFocus) btn.focus();
 }
 function markDirty(reason = "Pending changes.", auto = false) {
   generationToken += 1;
@@ -267,9 +271,8 @@ function markDirty(reason = "Pending changes.", auto = false) {
   routeDirty = true;
   document.body.classList.add("route-stale");
   setDownloadsEnabled(false);
-  const detail = `${reason} Press Generate.`;
-  setRunState("pending", "Pending changes", detail);
-  setStatus(detail, "pending");
+  setRunState("pending", "Pending changes", "Generate a route to apply these changes.");
+  setStatus(reason, "pending");
   setTimingState("", "Processing time: —");
   clearRouteDetails();
   updateLegend();
@@ -289,14 +292,13 @@ function scheduleGenerate(reason = "Change detected.", delay = 650) {
   pendingGenerateTimer = null;
   markDirty(reason, false);
 }
-function finishGenerationState(result, statusClass) {
+function finishGenerationState(statusClass) {
   routeDirty = false;
   document.body.classList.remove("route-stale");
   setDownloadsEnabled(currentWaypoints.length > 0);
-  const d = result.distance_m || distanceRoute(result.waypoints || []);
   const elapsed = lastProcessingMs || (generationStartedAtMs ? performance.now() - generationStartedAtMs : 0);
   const timeText = formatProcessingTime(elapsed);
-  const details = `${(result.waypoints || []).length} points · ${formatDistance(d)} · processed in ${timeText} · ${new Date().toLocaleTimeString()}`;
+  const details = `Last generated at ${new Date().toLocaleTimeString()}`;
   setRunState(statusClass, statusClass === "warn" ? "Generated with warnings" : "Generated", details);
   setTimingState(statusClass === "err" ? "err" : "ok", `Processing time: ${timeText}`);
 }
@@ -438,15 +440,18 @@ function setFurrowBearing(value, manual = true, reason = "Furrow rotation change
   if (appMode === "coverage") scheduleGenerate(reason);
 }
 
+function setPressed(id, pressed) {
+  const button = $(id);
+  button.classList.toggle("active", pressed);
+  button.setAttribute("aria-pressed", String(pressed));
+}
 function setBaseView(next, remember = true) {
   if (!baseLayers[next]) next = "gps";
   if (activeBaseLayer) map.removeLayer(activeBaseLayer);
   activeBaseLayer = baseLayers[next].addTo(map);
   if (remember) modeBaseView[appMode] = next;
-  $("gpsViewBtn").classList.toggle("active", next === "gps");
-  $("mapViewBtn").classList.toggle("active", next === "map");
-  const modeName = appMode === "coverage" ? "Coverage planning" : "Mission route";
-  $("modePill").textContent = `${modeName} · ${next === "gps" ? "GPS" : "Map"}`;
+  setPressed("gpsViewBtn", next === "gps");
+  setPressed("mapViewBtn", next === "map");
 }
 function syncBaseView() {
   setBaseView(modeBaseView[appMode], false);
@@ -652,7 +657,7 @@ function cancelRectToolChanges() {
 function setStartCorner(corner) {
   startCorner = corner;
   ["nw","ne","sw","se"].forEach(k => {
-    $("sc-" + k).classList.toggle("active", k === corner);
+    setPressed("sc-" + k, k === corner);
     $("card-" + k).classList.toggle("active-corner", k === corner);
   });
   updateRectFromInputs(false);
@@ -724,8 +729,8 @@ function onRectDrawEnd(e) {
 function switchFieldMode(mode) {
   fieldMode = mode;
   if (isDrawingRect && mode !== "rect") cancelRectDraw(false);
-  $("fieldRectTab").classList.toggle("active", mode === "rect");
-  $("fieldPolyTab").classList.toggle("active", mode === "poly");
+  setPressed("fieldRectTab", mode === "rect");
+  setPressed("fieldPolyTab", mode === "poly");
   $("rectFields").classList.toggle("hidden", mode !== "rect");
   $("polyFields").classList.toggle("hidden", mode !== "poly");
   $("rectHint").classList.toggle("hidden", mode !== "rect");
@@ -2571,7 +2576,7 @@ function renderPoiPicker() {
     return `<button type="button" class="poi-card ${selected ? "selected" : ""}" data-id="${f.id}">
       <span class="poi-dot" style="background:${landColor(type)}"></span>
       <span class="poi-main"><span class="poi-name">${escapeHtml(name)}</span><span class="poi-type">${escapeHtml(type)}</span></span>
-      <span class="poi-add">+</span>
+      <span class="poi-add" aria-hidden="true">+</span>
     </button>`;
   }).join("");
 }
@@ -2587,9 +2592,9 @@ function renderMissionList() {
       <span class="mission-index">${i+1}</span>
       <span><strong>${escapeHtml(label.id)}</strong><br><small style="color:var(--muted)">${escapeHtml(label.landcover)}</small></span>
       <span class="mission-controls">
-        <button class="icon-btn" type="button" data-action="up" data-index="${i}" title="Up">↑</button>
-        <button class="icon-btn" type="button" data-action="down" data-index="${i}" title="Down">↓</button>
-        <button class="icon-btn" type="button" data-action="remove" data-index="${i}" title="Remove">×</button>
+        <button class="icon-btn" type="button" data-action="up" data-index="${i}" aria-label="Move waypoint ${i + 1} up" ${i === 0 ? "disabled" : ""}>↑</button>
+        <button class="icon-btn" type="button" data-action="down" data-index="${i}" aria-label="Move waypoint ${i + 1} down" ${i === missionStops.length - 1 ? "disabled" : ""}>↓</button>
+        <button class="icon-btn" type="button" data-action="remove" data-index="${i}" aria-label="Remove waypoint ${i + 1}">×</button>
       </span>
     </div>`;
   }).join("");
@@ -2665,14 +2670,16 @@ function setDrawer(open) {
   const isOpen = appMode === "mission" && drawerOpen;
   const drawer = $("waypointDrawer");
   const backdrop = $("waypointBackdrop");
-  if (drawer) {
-    drawer.classList.toggle("hidden", !isOpen);
-    drawer.classList.toggle("open", isOpen);
-  }
-  if (backdrop) backdrop.classList.toggle("hidden", !isOpen);
-  document.body.classList.toggle("waypoint-modal-open", isOpen);
-  $("drawerToggle").classList.toggle("active", isOpen);
-  $("drawerToggle").setAttribute("aria-expanded", isOpen ? "true" : "false");
+  const toggle = $("drawerToggle");
+  const wasOpen = !drawer.classList.contains("hidden");
+  const restoreFocus = !isOpen && drawer.contains(document.activeElement);
+  drawer.classList.toggle("hidden", !isOpen);
+  backdrop.classList.toggle("hidden", !isOpen);
+  $("map").inert = isOpen;
+  toggle.classList.toggle("active", isOpen);
+  toggle.setAttribute("aria-expanded", String(isOpen));
+  if (isOpen && !wasOpen) $("drawerClose").focus();
+  if (restoreFocus) (appMode === "mission" ? toggle : $("coverageTab")).focus();
 }
 function syncMissionDrawer() {
   const isMission = appMode === "mission";
@@ -2732,12 +2739,15 @@ function renderResult(result) {
   setStatus(message, statusClass);
   setRouteDetails(result.details || [], result.detailTitle || "Route details");
   updateDownloads();
-  finishGenerationState({...result, distance_m: d}, statusClass);
+  finishGenerationState(statusClass);
   updateLegend();
 }
-function updateStats(points, distance, label, rows) {
+function updateStats(points, measurement, label, rows, measurementLabel = "Distance") {
   $("statPoints").textContent = String(points);
-  $("statDistance").textContent = typeof distance === "number" ? formatDistance(distance) : String(distance);
+  $("statDistanceLabel").textContent = measurementLabel;
+  $("statDistance").textContent = measurementLabel === "Area"
+    ? `${measurement.toFixed(1)} m²`
+    : formatDistance(measurement);
   $("statRowsLabel").textContent = label;
   $("statRows").textContent = String(rows);
 }
@@ -2783,7 +2793,6 @@ function updateDownloads() {
     const a = $(id);
     if (a.dataset.url) URL.revokeObjectURL(a.dataset.url);
     a.dataset.url = URL.createObjectURL(blob);
-    a.href = a.dataset.url;
     a.download = name;
   };
   set("downloadCsv", csv, `${appMode}_${fieldMode}_waypoints.csv`, "text/csv");
@@ -2838,14 +2847,15 @@ function updateLiveStats() {
       const width = (distanceLatLng(c.nw, c.ne) + distanceLatLng(c.sw, c.se)) / 2;
       const height = (distanceLatLng(c.nw, c.sw) + distanceLatLng(c.ne, c.se)) / 2;
       const area = polygonAreaLatLng([c.nw, c.ne, c.se, c.sw]);
-      updateStats(currentWaypoints.length || 0, area, "Field", `${Math.max(width, height).toFixed(1)}×${Math.min(width, height).toFixed(1)} m`);
+      updateStats(currentWaypoints.length || 0, area, "Field", `${Math.max(width, height).toFixed(1)}×${Math.min(width, height).toFixed(1)} m`, "Area");
     } else {
       if (polyVertices.length < 2) {
         updateStats(currentWaypoints.length || 0, 0, "Vertices", polyVertices.length);
         return;
       }
-      const perimeter = distancePoints(polyVertices.concat(polyVertices.length >= 3 ? [polyVertices[0]] : []));
-      updateStats(currentWaypoints.length || 0, polyVertices.length >= 3 ? polygonAreaLatLng(polyVertices) : perimeter, "Vertices", polyVertices.length);
+      const hasArea = polyVertices.length >= 3;
+      const measurement = hasArea ? polygonAreaLatLng(polyVertices) : distancePoints(polyVertices);
+      updateStats(currentWaypoints.length || 0, measurement, "Vertices", polyVertices.length, hasArea ? "Area" : "Distance");
     }
   } catch (e) {}
 }
@@ -2853,8 +2863,8 @@ function setMode(mode) {
   if (mode !== "coverage" && isDrawingRect) cancelRectDraw(false);
   appMode = mode;
   markDirty("Planning mode selected.", false);
-  $("coverageTab").classList.toggle("active", mode === "coverage");
-  $("missionTab").classList.toggle("active", mode === "mission");
+  setPressed("coverageTab", mode === "coverage");
+  setPressed("missionTab", mode === "mission");
   $("coveragePanel").classList.toggle("hidden", mode !== "coverage");
   $("missionPanel").classList.toggle("hidden", mode !== "mission");
   updateVisibleMissionSettings();
@@ -3189,15 +3199,26 @@ function bindEvents() {
   });
   $("poiGrid").addEventListener("click", event => {
     const card = event.target.closest(".poi-card");
-    if (card) addMissionStop(card.dataset.id);
+    if (!card) return;
+    const cards = [...$("poiGrid").querySelectorAll(".poi-card")];
+    const index = cards.indexOf(card);
+    addMissionStop(card.dataset.id);
+    $("poiGrid").querySelectorAll(".poi-card")[index]?.focus({preventScroll: true});
   });
   $("missionList").addEventListener("click", event => {
     const button = event.target.closest("button[data-action]");
     if (!button) return;
     const index = Number(button.dataset.index);
-    if (button.dataset.action === "up") moveMissionStop(index, -1);
-    if (button.dataset.action === "down") moveMissionStop(index, 1);
-    if (button.dataset.action === "remove") removeMissionStop(index);
+    const action = button.dataset.action;
+    const delta = action === "up" ? -1 : 1;
+    if (action === "remove") removeMissionStop(index);
+    else moveMissionStop(index, delta);
+    const next = action === "remove" ? Math.min(index, missionStops.length - 1) : index + delta;
+    const row = $("missionList").querySelector(`.mission-step:nth-child(${next + 1})`);
+    const nextControl = row?.querySelector(`[data-action="${action}"]:enabled`)
+      || row?.querySelector("[data-action]:enabled")
+      || $("drawerClose");
+    nextControl.focus({preventScroll: true});
   });
   map.on("click", event => {
     if (manualObstacleDrawMode) {

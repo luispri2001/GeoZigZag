@@ -11,25 +11,148 @@
 </head>
 <body>
   <div class="shell">
-    <aside>
-      <header>
-        <h1>GeoZigzag Studio</h1>
-        <div class="subtitle">Field coverage and mission routing. Navigation launch is intentionally not included.</div>
-      </header>
-
-      <div class="tabs">
-        <button id="coverageTab" class="tab active" type="button">Coverage</button>
-        <button id="missionTab" class="tab" type="button">Mission route</button>
+    <header class="studio-header">
+      <div class="studio-title">
+        <h1>GeoZigZag Studio</h1>
+        <a class="mobile-jump" href="#planningSettings">Settings</a>
       </div>
+      <p class="subtitle">Field coverage and mission routing · Planning only</p>
+      <div class="tabs" role="group" aria-label="Planning mode">
+        <button id="coverageTab" class="tab active" type="button" aria-controls="coveragePanel" aria-pressed="true">Coverage</button>
+        <button id="missionTab" class="tab" type="button" aria-controls="missionPanel" aria-pressed="false">Mission route</button>
+      </div>
+    </header>
 
+    <main class="workspace" aria-label="Map and route">
+      <div class="map-canvas" id="mapWorkspace" tabindex="-1">
+        <div id="map" role="region" aria-label="Planning map"></div>
+        <div class="mapbar">
+          <div class="layer-toggle" role="group" aria-label="Map view">
+            <button id="gpsViewBtn" type="button" aria-label="GPS satellite view" aria-pressed="false">GPS</button>
+            <button id="mapViewBtn" type="button" aria-label="Street map view" aria-pressed="false">Map</button>
+          </div>
+          <button id="drawerToggle" class="pill-button hidden" type="button" aria-haspopup="dialog" aria-controls="waypointDrawer" aria-expanded="false">Waypoints</button>
+        </div>
+        <div class="place-search">
+          <button id="placeSearchToggle" class="pill-button" type="button" aria-expanded="false" aria-controls="placeSearchForm">Find a place</button>
+          <form id="placeSearchForm" class="place-search-form hidden" role="search" aria-label="Find a place on the map">
+            <label for="placeQuery">Place name or coordinates</label>
+            <div class="place-search-row">
+              <input id="placeQuery" type="search" placeholder="León or 42.60, -5.57" maxlength="120" required>
+              <button id="placeSearchSubmit" class="primary" type="submit">Search</button>
+            </div>
+            <p id="placeSearchStatus" class="status" role="status"></p>
+            <ul id="placeResults" class="place-results" aria-label="Matching places"></ul>
+            <p class="place-source">Place data from <a href="https://www.geonames.org/" target="_blank" rel="noopener noreferrer">GeoNames</a> via <a href="https://open-meteo.com/en/docs/geocoding-api" target="_blank" rel="noopener noreferrer">Open-Meteo</a></p>
+          </form>
+          <span id="placeMapStatus" class="visually-hidden" role="status"></span>
+        </div>
+        <div id="routeLoadingOverlay" class="route-loading-overlay hidden" aria-live="polite" aria-busy="false">
+          <div class="loading-card">
+            <span class="loading-spinner" aria-hidden="true"></span>
+            <div>
+              <strong id="loadingTitle">Generating route…</strong>
+              <span id="loadingDetail">Preparing calculation.</span>
+            </div>
+          </div>
+        </div>
+        <div id="waypointBackdrop" class="waypoint-backdrop hidden"></div>
+        <section id="waypointDrawer" class="waypoint-drawer hidden" role="dialog" aria-labelledby="waypointDrawerTitle">
+          <div class="drawer-head">
+            <h2 class="drawer-title" id="waypointDrawerTitle">Mission waypoints</h2>
+            <button id="drawerClose" class="icon-btn" type="button" aria-label="Close waypoint manager">×</button>
+          </div>
+          <div class="drawer-body">
+            <section class="drawer-section">
+              <div class="modal-section-head">
+                <span>Route order</span>
+                <div class="mini-actions">
+                  <button id="reverseMissionBtn" class="secondary" type="button">Reverse</button>
+                  <button id="clearMissionBtn" class="secondary danger" type="button">Clear</button>
+                </div>
+              </div>
+              <div id="missionList" class="mission-list"></div>
+            </section>
+            <section class="drawer-section">
+              <div class="modal-section-head">
+                <span>Available points</span>
+              </div>
+              <p class="drawer-hint">Choose a point below, or close this panel and click the map to create a named point.</p>
+              <div id="poiGrid" class="poi-grid"></div>
+            </section>
+          </div>
+        </section>
+        <details id="mapLegend" class="legend" open>
+          <summary>Legend</summary>
+          <div id="legendBody" class="legend-body"></div>
+        </details>
+      </div>
+      <div id="mapControlRail" class="map-control-rail">
+        <section id="mapRoutingPanel" class="map-panel routing-panel hidden" aria-label="Routing mode">
+          <h2 class="map-panel-title">Routing mode</h2>
+          <div class="grid2">
+            <div class="field"><label for="routeStrategy">Strategy</label><select id="routeStrategy"><option value="direct">Direct interpolation</option><option value="osm">OSM paths (optional)</option><option value="cost" selected>Local costmap A*</option></select></div>
+            <div class="field"><label for="routeSpacing">Spacing m</label><input id="routeSpacing" type="number" min="1" step="1" value="10"></div>
+          </div>
+          <div class="field osm-setting">
+            <label for="osmProfile">OSM profile</label>
+            <select id="osmProfile">
+              <option value="foot" selected>Foot paths</option>
+              <option value="driving">Driving roads</option>
+            </select>
+          </div>
+          <p id="costRouteNote" class="compact-note hidden">Local A* fuses semantic zones with an optional DEM slope costmap.</p>
+        </section>
+
+        <section class="map-panel map-route-block" aria-label="Route generation">
+          <div class="map-summary-card">
+            <h2 class="map-panel-title">Route summary</h2>
+            <div class="map-stats">
+              <div class="metric"><span>Points</span><strong id="statPoints">0</strong></div>
+              <div class="metric"><span id="statDistanceLabel">Distance</span><strong id="statDistance">0 m</strong></div>
+              <div class="metric"><span id="statRowsLabel">Rows</span><strong id="statRows">0</strong></div>
+            </div>
+          </div>
+          <div class="map-action-card">
+            <div class="route-actions">
+              <button id="generateBtn" class="primary" type="button">Generate route</button>
+              <button id="fitBtn" class="secondary" type="button">Fit map</button>
+              <button id="cancelGenerateBtn" class="secondary hidden" type="button">Cancel preview</button>
+            </div>
+            <div id="downloadsRow" class="downloads">
+              <a id="downloadCsv" class="download" role="link" aria-disabled="true" tabindex="-1">CSV</a>
+              <a id="downloadYaml" class="download" role="link" aria-disabled="true" tabindex="-1">YAML</a>
+              <a id="downloadArduPilot" class="download" role="link" aria-disabled="true" tabindex="-1" aria-describedby="arduPilotNote">ArduPilot</a>
+              <a id="downloadPlan" class="download" role="link" aria-disabled="true" tabindex="-1">Plan JSON</a>
+            </div>
+            <details class="export-note">
+              <summary>ArduPilot export info</summary>
+              <p id="arduPilotNote" class="compact-note">The .waypoints file contains positions at 0 m relative altitude. The vehicle controller handles turns. GeoZigZag headings and stationary rotations are omitted.</p>
+            </details>
+          </div>
+          <div class="map-status-card">
+            <div id="runState" class="run-state idle"><div><strong>No route generated</strong><span>Set the field or mission and press Generate.</span></div></div>
+            <div id="timingState" class="timing-state">Processing time: —</div>
+            <div id="status" class="status" role="status">Ready.</div>
+            <details id="routeDetails" class="route-details hidden">
+              <summary>Route details</summary>
+              <div id="routeDetailsBody" class="route-details-body"></div>
+            </details>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <aside class="settings" id="planningSettings" aria-label="Planning settings" tabindex="-1">
+      <div class="settings-jump"><a class="mobile-jump" href="#mapWorkspace">Back to map</a></div>
       <div class="scroll">
         <div id="coveragePanel">
           <details class="panel-section" open>
             <summary>Field shape</summary>
             <div class="panel-body">
-              <div class="mode-tabs">
-                <button class="mtab active" id="fieldRectTab" type="button">Rectangle</button>
-                <button class="mtab" id="fieldPolyTab" type="button">Free polygon</button>
+              <div class="mode-tabs" role="group" aria-label="Field shape">
+                <button class="mtab active" id="fieldRectTab" type="button" aria-controls="rectFields" aria-pressed="true">Rectangle</button>
+                <button class="mtab" id="fieldPolyTab" type="button" aria-controls="polyFields" aria-pressed="false">Free polygon</button>
               </div>
               <p class="hint" id="rectHint">Drag corners or draw a rectangle on the map.</p>
               <p class="hint hidden" id="polyHint">Click to add vertices. Double-click or close the polygon when done.</p>
@@ -40,21 +163,21 @@
             <summary>Field limits</summary>
             <div class="panel-body">
               <div id="rectFields">
-                <div class="actions" style="margin-bottom:10px">
+                <div class="actions field-actions">
                   <button class="secondary" id="drawRectBtn" type="button">Draw rectangle</button>
                   <button class="secondary" id="perfectRectBtn" type="button">Make square</button>
                 </div>
                 <div class="corner-grid">
-                  <div class="corner-card active-corner" id="card-nw"><div class="corner-label"><span class="corner-dot"></span>NW</div><input id="nw_lat" type="text" value="42.614491711416974" placeholder="lat"><input id="nw_lon" type="text" value="-5.563585388952936" placeholder="lon"></div>
-                  <div class="corner-card" id="card-ne"><div class="corner-label"><span class="corner-dot"></span>NE</div><input id="ne_lat" type="text" value="42.61448202489248" placeholder="lat"><input id="ne_lon" type="text" value="-5.563453034080995" placeholder="lon"></div>
-                  <div class="corner-card" id="card-sw"><div class="corner-label"><span class="corner-dot"></span>SW</div><input id="sw_lat" type="text" value="42.61438408328242" placeholder="lat"><input id="sw_lon" type="text" value="-5.563612444921233" placeholder="lon"></div>
-                  <div class="corner-card" id="card-se"><div class="corner-label"><span class="corner-dot"></span>SE</div><input id="se_lat" type="text" value="42.61436524833972" placeholder="lat"><input id="se_lon" type="text" value="-5.563474971352587" placeholder="lon"></div>
+                  <div class="corner-card active-corner" id="card-nw"><div class="corner-label"><span class="corner-dot"></span>NW</div><input id="nw_lat" type="text" aria-label="NW latitude" inputmode="decimal" value="42.614491711416974" placeholder="lat"><input id="nw_lon" type="text" aria-label="NW longitude" inputmode="decimal" value="-5.563585388952936" placeholder="lon"></div>
+                  <div class="corner-card" id="card-ne"><div class="corner-label"><span class="corner-dot"></span>NE</div><input id="ne_lat" type="text" aria-label="NE latitude" inputmode="decimal" value="42.61448202489248" placeholder="lat"><input id="ne_lon" type="text" aria-label="NE longitude" inputmode="decimal" value="-5.563453034080995" placeholder="lon"></div>
+                  <div class="corner-card" id="card-sw"><div class="corner-label"><span class="corner-dot"></span>SW</div><input id="sw_lat" type="text" aria-label="SW latitude" inputmode="decimal" value="42.61438408328242" placeholder="lat"><input id="sw_lon" type="text" aria-label="SW longitude" inputmode="decimal" value="-5.563612444921233" placeholder="lon"></div>
+                  <div class="corner-card" id="card-se"><div class="corner-label"><span class="corner-dot"></span>SE</div><input id="se_lat" type="text" aria-label="SE latitude" inputmode="decimal" value="42.61436524833972" placeholder="lat"><input id="se_lon" type="text" aria-label="SE longitude" inputmode="decimal" value="-5.563474971352587" placeholder="lon"></div>
                 </div>
                 <div class="rect-adjust-grid">
-                  <div class="field"><label>Center N-S</label><div class="slider-row"><input type="range" id="rectCenterNS" min="-50" max="50" step="0.1" value="0"><span class="slider-val" id="rectCenterNSLbl">0.0 m</span></div></div>
-                  <div class="field"><label>Center E-W</label><div class="slider-row"><input type="range" id="rectCenterEW" min="-50" max="50" step="0.1" value="0"><span class="slider-val" id="rectCenterEWLbl">0.0 m</span></div></div>
-                  <div class="field"><label>Height</label><div class="slider-row"><input type="range" id="rectHeight" min="0.5" max="100" step="0.1" value="12"><span class="slider-val" id="rectHeightLbl">12.0 m</span></div></div>
-                  <div class="field"><label>Width</label><div class="slider-row"><input type="range" id="rectWidth" min="0.5" max="100" step="0.1" value="12"><span class="slider-val" id="rectWidthLbl">12.0 m</span></div></div>
+                  <div class="field"><label for="rectCenterNS">Center N-S</label><div class="slider-row"><input type="range" id="rectCenterNS" min="-50" max="50" step="0.1" value="0"><span class="slider-val" id="rectCenterNSLbl">0.0 m</span></div></div>
+                  <div class="field"><label for="rectCenterEW">Center E-W</label><div class="slider-row"><input type="range" id="rectCenterEW" min="-50" max="50" step="0.1" value="0"><span class="slider-val" id="rectCenterEWLbl">0.0 m</span></div></div>
+                  <div class="field"><label for="rectHeight">Height</label><div class="slider-row"><input type="range" id="rectHeight" min="0.5" max="100" step="0.1" value="12"><span class="slider-val" id="rectHeightLbl">12.0 m</span></div></div>
+                  <div class="field"><label for="rectWidth">Width</label><div class="slider-row"><input type="range" id="rectWidth" min="0.5" max="100" step="0.1" value="12"><span class="slider-val" id="rectWidthLbl">12.0 m</span></div></div>
                 </div>
                 <details id="rectToolsPanel" class="advanced-panel">
                   <summary>Rectangle alignment</summary>
@@ -65,7 +188,7 @@
                       <button id="rectEastBtn" type="button">East-West</button>
                       <button id="rectAlignFurrowsBtn" type="button">To furrows</button>
                     </div>
-                    <div class="field" style="margin-top:10px">
+                    <div class="field spaced-field">
                       <label for="rectBearing">Rectangle angle <span id="rectBearingLbl" class="value-tag">0°</span></label>
                       <div class="angle-row">
                         <input id="rectBearing" type="range" min="0" max="179" step="1" value="0">
@@ -83,10 +206,10 @@
 
               <div id="polyFields" class="hidden">
                 <div class="poly-hint">Click map points, then close the polygon. Points remain draggable.</div>
-                <div id="polyVList"><span style="color:var(--muted)">No vertices yet…</span></div>
-                <div class="btn-row" style="margin-top:8px">
+                <div id="polyVList">No vertices yet…</div>
+                <div class="actions spaced-actions">
                   <button class="secondary danger" id="clearPolyBtn" type="button">Clear</button>
-                  <button class="secondary" id="closePolyBtn" type="button" style="flex:1">Close polygon</button>
+                  <button class="secondary" id="closePolyBtn" type="button">Close polygon</button>
                 </div>
               </div>
             </div>
@@ -135,13 +258,13 @@
                 </div>
               </div>
               <div class="field">
-                <label>Start corner</label>
+                <div class="field-label" id="startCornerLabel">Start corner</div>
                 <div class="compass-wrap">
-                  <div class="compass">
-                    <button class="compass-btn active" id="sc-nw" type="button">NW</button>
-                    <button class="compass-btn" id="sc-ne" type="button">NE</button>
-                    <button class="compass-btn" id="sc-sw" type="button">SW</button>
-                    <button class="compass-btn" id="sc-se" type="button">SE</button>
+                  <div class="compass" role="group" aria-labelledby="startCornerLabel">
+                    <button class="compass-btn active" id="sc-nw" type="button" aria-pressed="true">NW</button>
+                    <button class="compass-btn" id="sc-ne" type="button" aria-pressed="false">NE</button>
+                    <button class="compass-btn" id="sc-sw" type="button" aria-pressed="false">SW</button>
+                    <button class="compass-btn" id="sc-se" type="button" aria-pressed="false">SE</button>
                   </div>
                 </div>
               </div>
@@ -167,7 +290,7 @@
                     <option value="scrub">Scrub — medium cost</option>
                   </select>
                 </div>
-                <div class="cache-actions four">
+                <div class="cache-actions">
                   <button id="drawManualObstacleBtn" class="secondary" type="button" title="Draw a semantic zone on the map">Draw zone</button>
                   <button id="finishManualObstacleBtn" class="secondary" type="button" title="Finish the current semantic-zone polygon">Finish drawing</button>
                   <button id="cancelManualObstacleBtn" class="secondary" type="button">Cancel drawing</button>
@@ -335,112 +458,10 @@
         </div>
       </div>
     </aside>
-
-    <main>
-      <div id="map"></div>
-      <div class="mapbar">
-        <div id="modePill" class="pill">Coverage planning · GPS</div>
-        <div class="layer-toggle" aria-label="Map view">
-          <button id="gpsViewBtn" type="button">GPS</button>
-          <button id="mapViewBtn" type="button">Map</button>
-        </div>
-        <button id="drawerToggle" class="pill-button hidden" type="button" aria-haspopup="dialog" aria-expanded="false">Waypoints</button>
-      </div>
-      <div id="mapControlRail" class="map-control-rail">
-        <section id="mapRoutingPanel" class="map-panel routing-panel hidden" aria-label="Routing mode">
-          <div class="map-panel-title">Routing mode</div>
-          <div class="grid2">
-            <div class="field"><label for="routeStrategy">Strategy</label><select id="routeStrategy"><option value="direct">Direct interpolation</option><option value="osm">OSM paths (optional)</option><option value="cost" selected>Local costmap A*</option></select></div>
-            <div class="field"><label for="routeSpacing">Spacing m</label><input id="routeSpacing" type="number" min="1" step="1" value="10"></div>
-          </div>
-          <div class="field osm-setting">
-            <label for="osmProfile">OSM profile</label>
-            <select id="osmProfile">
-              <option value="foot" selected>Foot paths</option>
-              <option value="driving">Driving roads</option>
-            </select>
-          </div>
-          <p id="costRouteNote" class="compact-note hidden">Local A* fuses semantic zones with an optional DEM slope costmap.</p>
-        </section>
-
-        <section class="map-panel map-route-block" aria-label="Route generation">
-          <div class="map-summary-card">
-            <div class="map-panel-title">Route summary</div>
-            <div class="stats map-stats">
-              <div class="metric"><span>Points</span><strong id="statPoints">0</strong></div>
-              <div class="metric"><span>Distance</span><strong id="statDistance">0 m</strong></div>
-              <div class="metric"><span id="statRowsLabel">Rows</span><strong id="statRows">0</strong></div>
-            </div>
-          </div>
-          <div class="map-action-card">
-            <button id="generateBtn" class="primary" type="button">Generate route</button>
-            <button id="fitBtn" class="secondary" type="button">Fit map</button>
-            <div id="downloadsRow" class="downloads stale">
-              <a id="downloadCsv" class="download disabled" href="#">CSV</a>
-              <a id="downloadYaml" class="download disabled" href="#">YAML</a>
-              <a id="downloadArduPilot" class="download disabled" href="#" title="Position-only mission. Robot headings and stationary rotations are not encoded.">ArduPilot .waypoints</a>
-              <a id="downloadPlan" class="download disabled" href="#">Plan JSON</a>
-            </div>
-            <p class="compact-note">ArduPilot exports waypoint coordinates at 0 m relative altitude. The vehicle's own controller handles turns; GeoZigZag headings and stationary rotate actions are not included.</p>
-          </div>
-          <div class="map-status-card">
-            <div id="runState" class="run-state idle"><div><strong>No route generated</strong><span>Set the field or mission and press Generate.</span></div></div>
-            <div id="timingState" class="timing-state">Processing time: —</div>
-            <div id="status" class="status">Ready.</div>
-            <details id="routeDetails" class="route-details hidden">
-              <summary>Route details</summary>
-              <div id="routeDetailsBody" class="route-details-body"></div>
-            </details>
-          </div>
-        </section>
-      </div>
-      <div id="mapStateBadge" class="map-state-badge hidden">No route generated</div>
-      <div id="routeLoadingOverlay" class="route-loading-overlay hidden" aria-live="polite" aria-busy="false">
-        <div class="loading-card">
-          <span class="loading-spinner" aria-hidden="true"></span>
-          <div>
-            <strong id="loadingTitle">Generating route…</strong>
-            <span id="loadingDetail">Preparing calculation.</span>
-          </div>
-          <button id="cancelGenerateBtn" type="button">Cancel preview</button>
-        </div>
-      </div>
-      <div id="waypointBackdrop" class="waypoint-backdrop hidden"></div>
-      <section id="waypointDrawer" class="waypoint-drawer hidden" role="dialog" aria-modal="true" aria-label="Mission waypoint manager">
-        <div class="drawer-head">
-          <span class="drawer-title">Waypoints</span>
-          <button id="drawerClose" class="icon-btn" type="button" title="Close waypoint window">×</button>
-        </div>
-        <div class="drawer-body">
-          <div class="waypoint-modal-grid">
-            <section class="waypoint-modal-section">
-              <div class="modal-section-head">
-                <span>Route order</span>
-                <div class="mini-actions">
-                  <button id="reverseMissionBtn" class="secondary" type="button">Reverse</button>
-                  <button id="clearMissionBtn" class="secondary danger" type="button">Clear</button>
-                </div>
-              </div>
-              <div id="missionList" class="mission-list"></div>
-            </section>
-            <section class="waypoint-modal-section">
-              <div class="modal-section-head">
-                <span>Available points</span>
-              </div>
-              <p class="drawer-hint">Click the map to create a named point, or choose one below.</p>
-              <div id="poiGrid" class="poi-grid"></div>
-            </section>
-          </div>
-        </div>
-      </section>
-      <details id="mapLegend" class="legend" open>
-        <summary>Legend</summary>
-        <div id="legendBody" class="legend-body"></div>
-      </details>
-    </main>
   </div>
 
 <script src="static/robot-coverage.js"></script>
 <script src="static/studio.js"></script>
+<script src="static/place-search.js"></script>
 </body>
 </html>
